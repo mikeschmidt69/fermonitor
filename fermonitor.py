@@ -44,7 +44,7 @@ def main():
     logger.info("Starting Fermonitor...")
 
     settings.init()
-    fridge.init(settings.CONFIGFILE)
+    fermenter = fridge.Fridge(settings.CONFIGFILE)
     
     # Start Tilt thread to read temp and gravity if tilt configuration file is specified
     if settings.bUseTilt:
@@ -108,7 +108,7 @@ def main():
                 
                 timeLastLogged = dataTime
 
-            fridge.control(temp)
+            fermenter.control(temp)
 
         time.sleep(10)
 
@@ -119,4 +119,5 @@ if __name__ == "__main__": #dont run this as a module
 
     except KeyboardInterrupt:
         print("...Fermonitor Stopped")
+ 
     
