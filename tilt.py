@@ -19,6 +19,10 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+# tilt.py code is based on tiltV1.py code found at following URL and utilizes 
+# blescan.py found on the same page 
+# https://www.instructables.com/id/Reading-a-Tilt-Hydrometer-With-a-Raspberry-Pi/
+
 import blescan
 import sys
 import datetime
