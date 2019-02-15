@@ -5,5 +5,5 @@ Python3 code to read temperature and specific gravity from Tilt Hydrometer (http
 
 Functionality is configured using fermonitor.ini
 
-Tilt code is based on tiltV1.py code found at following URL and utilizes blescan.py found on the same page
+tilt.py code is based on tiltV1.py code found at following URL and utilizes blescan.py found on the same page
 https://www.instructables.com/id/Reading-a-Tilt-Hydrometer-With-a-Raspberry-Pi/
