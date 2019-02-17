@@ -65,6 +65,10 @@ class Chamber:
         GPIO.cleanup()
 
     def control(self, _temp):
+
+        if _temp == None:
+            return
+
         self.coolingOnDelay
         self.heatingOnDelay
         self.isCooling

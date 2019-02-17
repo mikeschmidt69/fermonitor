@@ -113,16 +113,38 @@ def main():
             curTime = datetime.datetime.now()
 
             # Only log if first log or (logging interval has experied and there is new data)
-            if timeLastLogged == None or \
+            if (timeLastLogged == None and (tempTilt != None or tempOneWire != None or gravity != None)) or \
                 (curTime > timeLastLogged + datetime.timedelta(seconds=settings.iLogIntervalSeconds) and \
-                     (timeTilt > timeLastLogged or timeOneWire > timeLastLogged)):
+                     ((timeTilt != None and timeTilt > timeLastLogged) or \
+                         (timeOneWire != None and timeOneWire > timeLastLogged))):
 
                 logger.debug("Logging data to CSV file")
 
+                csv = ""
+
+                if timeTilt == None:
+                    csv = " ,"
+                else:
+                    csv = timeTilt.strftime("%d.%m.%Y %H:%M:%S") + ","
+                if tempTilt == None:
+                    csv = csv + " ,"
+                else:
+                    csv = csv + str(round(float(tempTilt),1)) + ","
+                if timeOneWire == None:
+                    csv = csv + " ,"
+                else:
+                    csv = csv + timeOneWire.strftime("%d.%m.%Y %H:%M:%S") + ","
+                if tempOneWire == None:
+                    csv = csv + " ,"
+                else:
+                    csv = csv + str(round(float(tempOneWire),1)) + ","
+                if gravity == None:
+                    csv = csv + " \n"
+                else:
+                    csv = csv + "{:5.3f}".format(round(float(gravity),3)) +"\n"
+                
                 f= open(settings.sLogFile,"a")
-                f.write(timeTilt.strftime("%d.%m.%Y %H:%M:%S") + "," \
-                    + str(round(float(tempTilt),1)) + "," + timeOneWire.strftime("%d.%m.%Y %H:%M:%S") + "," \
-                        + str(round(float(tempOneWire),1)) + "," + "{:5.3f}".format(round(float(gravity),3)) +"\n")
+                f.write(csv)
                 f.close()
                 
                 timeLastLogged = curTime
