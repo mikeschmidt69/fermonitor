@@ -43,7 +43,6 @@ def init():
 
     sLogFile = ""
     iLogIntervalSeconds = DEFAULT_LOG_INTERVAL
-    sTiltConf = ""
 
     bUseTilt = False
     bUseLogFile = False
@@ -81,7 +80,7 @@ def init():
             raise Exception
     except:
         bUseTilt = False
-        logger.warning("No color specified for Tilt: " + sTiltConf + ". Tilt not used.")
+        logger.warning("No color specified for Tilt. Tilt not used.")
         sTiltColor = ""
     
     try:
@@ -94,7 +93,7 @@ def init():
         logger.warning("Problem reading logging interval from configuration file. Using default "+str(iLogIntervalSeconds)+"s if log file is defined.")
         
     st = "sLogFile: " + sLogFile +"\n"
-    st = st + "sTiltConf: " + sTiltConf + "\n"
+    st = st + "sTiltColor: " + sTiltColor + "\n"
     st = st + "iLogIntervalSeconds: " + str(iLogIntervalSeconds) + "\n"
     st = st + "bUseTilt: " + str(bUseTilt) + "\n"
     st = st + "bUseLogFile: " + str(bUseLogFile)

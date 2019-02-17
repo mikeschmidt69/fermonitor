@@ -32,7 +32,7 @@ from setup_logger import logger
 import configparser
 from distutils.util import strtobool
 import settings
-import fridge
+import chamber
 import tilt
 import brewfather
 
@@ -44,7 +44,7 @@ def main():
     logger.info("Starting Fermonitor...")
 
     settings.init()
-    fermenter = fridge.Fridge(settings.CONFIGFILE)
+    tempChamber = chamber.Chamber(settings.CONFIGFILE)
     
     # Start Tilt thread to read temp and gravity if tilt configuration file is specified
     if settings.bUseTilt:
@@ -108,7 +108,7 @@ def main():
                 
                 timeLastLogged = dataTime
 
-            fermenter.control(temp)
+            tempChamber.control(temp)
 
         time.sleep(10)
 
