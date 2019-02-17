@@ -41,6 +41,7 @@ INVALID_GPIO = -1
 class Chamber:
 
     def __init__(self, _config):
+        self.initialized = False
         self.config = _config
         self.tempDates = []
         self.temps = []
@@ -52,12 +53,13 @@ class Chamber:
         self.timeHeatinggOff = datetime.datetime.now()-datetime.timedelta(minutes=DEFAULT_HEATING_ON_DELAY)
         self.coolingGPIO = INVALID_GPIO
         self.heatingGPIO = INVALID_GPIO
-    
+        
         # Set the GPIO naming conventions
         GPIO.setmode (GPIO.BCM)
         GPIO.setwarnings(False)
 
         self._readConf()
+        self.initialized = True
 
     def __del__(self):
         GPIO.cleanup()
@@ -118,20 +120,26 @@ class Chamber:
         if self.heatingGPIO != INVALID_GPIO:
             if _turnOnHeating:
                 GPIO.output(self.heatingGPIO, GPIO.HIGH)
+                if self.isHeating == False:
+                    logger.info("Turned on heating: " + datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S"))
                 self.isHeating = True
             else:
                 GPIO.output(self.heatingGPIO, GPIO.LOW)
                 if self.isHeating:
                     self.timeHeatingOff = datetime.datetime.now()
+                    logger.info("Turned on heating: " + self.timeHeatingOff.strftime("%d.%m.%Y %H:%M:%S"))
                     self.isHeating = False
         if self.coolingGPIO != INVALID_GPIO:
             if _turnOnCooling:
                 GPIO.output(self.coolingGPIO, GPIO.HIGH)
+                if self.isCooling == False:
+                    logger.info("Turned on cooling: " + datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S"))
                 self.isCooling = True
             else:
                 GPIO.output(self.coolingGPIO, GPIO.LOW)
                 if self.isCooling:
                     self.timeCoolingOff = datetime.datetime.now()
+                    logger.info("Turned on cooling: " + self.timeCoolingOff.strftime("%d.%m.%Y %H:%M:%S"))
                     self.isCooling = False
         return
 
@@ -141,6 +149,9 @@ class Chamber:
         self.config
         self.coolingOnDelay
         self.heatingOnDelay
+        self.coolingGPIO
+        self.heatingGPIO
+        self.initialized
 
         self.tempDates = []
         self.temps = []
@@ -163,6 +174,12 @@ class Chamber:
         try:
             if config["MessageLevel"] == "DEBUG":
                 logger.setLevel(logging.DEBUG)
+            elif config["MessageLevel"] == "WARNING":
+                logger.setLevel(logging.ERROR)
+            elif config["MessageLevel"] == "ERROR":
+                logger.setLevel(logging.WARNING)
+            elif config["MessageLevel"] == "INFO":
+                logger.setLevel(logging.INFO)
             else:
                 logger.setLevel(logging.INFO)
         except KeyError:
@@ -201,8 +218,9 @@ class Chamber:
             else:
                 raise Exception
         except:
-            self.coolingOnDelay = DEFAULT_COOLING_ON_DELAY
-            logger.warning("Invalid CoolOnDelay in configuration; using default: "+str(self.coolingOnDelay))
+            if self.coolingOnDelay != DEFAULT_COOLING_ON_DELAY or self.initialized == False:
+                self.coolingOnDelay = DEFAULT_COOLING_ON_DELAY
+                logger.warning("Invalid CoolOnDelay in configuration; using default: "+str(self.coolingOnDelay))
 
         try:
             if config["HeatOnDelay"] != "" and int(config["HeatOnDelay"]) >= 0:
@@ -210,8 +228,9 @@ class Chamber:
             else:
                 raise Exception
         except:
-            self.heatingOnDelay = DEFAULT_HEATING_ON_DELAY
-            logger.warning("Invalid HeatOnDelay in configuration; using default: "+str(self.heatingOnDelay))
+            if self.heatingOnDelay != DEFAULT_HEATING_ON_DELAY or self.initialized == False:
+                self.heatingOnDelay = DEFAULT_HEATING_ON_DELAY
+                logger.warning("Invalid HeatOnDelay in configuration; using default: "+str(self.heatingOnDelay))
 
         try:
             if config["CoolingGPIO"] != "" and int(config["CoolingGPIO"]) >= 0:
@@ -225,8 +244,9 @@ class Chamber:
             else:
                 raise Exception
         except:
-            self.coolingGPIO = INVALID_GPIO
-            logger.warning("Invalid or missing CoolingGPIO configuration; cooling device is not used.")
+            if self.coolingGPIO != INVALID_GPIO or self.initialized == False:
+                self.coolingGPIO = INVALID_GPIO
+                logger.warning("Invalid or missing CoolingGPIO configuration; cooling device is not used.")
 
         try:
             if config["HeatingGPIO"] != "" and int(config["HeatingGPIO"]) >= 0:
@@ -240,8 +260,9 @@ class Chamber:
             else:
                 raise Exception
         except:
-            self.heatinggGPIO = INVALID_GPIO
-            logger.warning("Invalid or missing HeatingGPIO configuration; heating device is not used.")
+            if self.heatingGPIO != INVALID_GPIO or self.initialized == False:
+                self.heatingGPIO = INVALID_GPIO
+                logger.warning("Invalid or missing HeatingGPIO configuration; heating device is not used.")
 
         return
 

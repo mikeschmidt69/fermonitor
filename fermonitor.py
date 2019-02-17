@@ -35,6 +35,7 @@ import settings
 import chamber
 import tilt
 import brewfather
+import onewiretemp
 
 logger = logging.getLogger('fermonitor')
 logger.setLevel(logging.DEBUG)
@@ -57,19 +58,28 @@ def main():
     bf = brewfather.BrewFather(settings.CONFIGFILE)
     bf.start()
 
+    # Start one-wire temperature sensor reading
+    tempSensor = onewiretemp.OneWireTemp(settings.CONFIGFILE)
+    tempSensor.start()
+
     # Create log file if specified and doesn't exist and write headings
     if settings.bUseLogFile and not os.path.exists(settings.sLogFile):
         logger.debug("Creating log file and writing headings")
         f = open(settings.sLogFile,"w")
-        f.write("Device,Time,Temp,Gravity\n")
+        f.write("Tilt Time,Tilt Temp,OneWire Time,OneWire Temp,Gravity\n")
         f.close()
 
-    device = None
-    dataTime = None
-    temp = None
+    timeTilt = None
+    tempTilt = None
     gravity = None
+    tempOneWire = None
+    timeOneWire = None
 
     timeLastLogged = None
+
+    beer_temp = None
+    beer_time = None
+    aux_temp = None
 
     # Main loop for reading and logging data as well as controllng fermentor
     while True:
@@ -78,37 +88,46 @@ def main():
             if tiltH.isDataValid():
                 # read latest stored data from tilt
                 logger.debug("Reading data from Tilt")
-                device = "Tilt_"+tiltH.getColor()
-                temp = tiltH.getTemp()
+                tempTilt = tiltH.getTemp()
                 gravity = tiltH.getGravity()
-                dataTime = tiltH.timeOfData() # time is used to tell if new data is available or not
+                timeTilt = tiltH.timeOfData() # time is used to tell if new data is available or not
 
-        # Only log if there is data
-        if device != None and dataTime != None and temp != None and gravity != None:
-            # seed latest data to BrewFather. This data may or may not reach the BrewFather app depending on update interval
-            logger.debug("Sending data to BrewFather")
-            bf.setData(device, temp, gravity, dataTime)
-            
-            if settings.bUseLogFile:
-                curTime = datetime.datetime.now()
+        if tempSensor.isDataValid():
+            tempOneWire = tempSensor.getTemp()
+            timeOneWire = tempSensor.timeOfData()
 
-                # Only log if first log or (logging interval has experied and there is new data)
-                if timeLastLogged == None or \
-                    (curTime > timeLastLogged + datetime.timedelta(seconds=settings.iLogIntervalSeconds) and dataTime > timeLastLogged):
+        if settings.oneWireTempMeasure == settings.MEASURE_BEER and settings.chamberControlTemp == settings.CONTROL_ONEWIRETEMP:
+            beer_temp = tempOneWire
+            beer_time = timeOneWire
+        else:
+            beer_temp = tempTilt
+            beer_time = timeTilt
 
-                    logger.debug("Logging data to CSV file")
+        if settings.oneWireTempMeasure == settings.MEASURE_CHAMBER:
+            aux_temp = tempOneWire
 
-                    sTemp = str(round(float(temp),1))
-                    sGravity = "{:5.3f}".format(round(float(gravity),3))
-                    sTime = dataTime.strftime("%d.%m.%Y %H:%M:%S")
-               
-                    f= open(settings.sLogFile,"a")
-                    f.write(device + ", " + sTime + "," + sTemp + "," + sGravity +"\n")
-                    f.close()
+        if (beer_temp != None or gravity != None) and beer_time != None:
+            bf.setData(beer_temp, aux_temp, gravity, beer_time)
                 
-                timeLastLogged = dataTime
+        if settings.bUseLogFile:
+            curTime = datetime.datetime.now()
 
-            tempChamber.control(temp)
+            # Only log if first log or (logging interval has experied and there is new data)
+            if timeLastLogged == None or \
+                (curTime > timeLastLogged + datetime.timedelta(seconds=settings.iLogIntervalSeconds) and \
+                     (timeTilt > timeLastLogged or timeOneWire > timeLastLogged)):
+
+                logger.debug("Logging data to CSV file")
+
+                f= open(settings.sLogFile,"a")
+                f.write(timeTilt.strftime("%d.%m.%Y %H:%M:%S") + "," \
+                    + str(round(float(tempTilt),1)) + "," + timeOneWire.strftime("%d.%m.%Y %H:%M:%S") + "," \
+                        + str(round(float(tempOneWire),1)) + "," + "{:5.3f}".format(round(float(gravity),3)) +"\n")
+                f.close()
+                
+                timeLastLogged = curTime
+
+        tempChamber.control(beer_temp)
 
         time.sleep(10)
 

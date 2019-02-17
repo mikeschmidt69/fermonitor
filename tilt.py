@@ -83,6 +83,8 @@ class Tilt (threading.Thread):
     def __init__(self, configFile, color):
         threading.Thread.__init__(self)
     
+        self.initialized = False
+
         if os.path.isfile(configFile) == False:
             raise IOError("Tilt configuration file is not valid: "+configFile)
 
@@ -97,13 +99,16 @@ class Tilt (threading.Thread):
         self.bluetoothDeviceId = 0
         self.interval = MINIMUM_INVERVAL # interval in seconds the tilt should be read
 
-        self.lastUpdateTime = datetime.datetime.now() - datetime.timedelta(seconds=self.interval) # last time the tilt was read
+        self._readConf(self.configFile)
+
+        self.lastUpdateTime = datetime.datetime.now()  - datetime.timedelta(seconds=self.interval) # last time the tilt was read
      
         self.validData = False # indicates if the current data is from a valid reading
         self.temp = -273.15 # last read temperature from tilt
         self.sg = 0.0 # last read specific gravity from tilt
         self.stopThread = True
 
+        self.initialized = True
 
     # Constructor for class
     # This constructor requires passed paramters instead of reading from configuration file
@@ -210,6 +215,12 @@ class Tilt (threading.Thread):
                     try:
                         if config["MessageLevel"] == "DEBUG":
                             logger.setLevel(logging.DEBUG)
+                        elif config["MessageLevel"] == "WARNING":
+                            logger.setLevel(logging.ERROR)
+                        elif config["MessageLevel"] == "ERROR":
+                            logger.setLevel(logging.WARNING)
+                        elif config["MessageLevel"] == "INFO":
+                            logger.setLevel(logging.INFO)
                         else:
                             logger.setLevel(logging.INFO)
                     except KeyError:

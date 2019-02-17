@@ -55,7 +55,7 @@ class BrewFather (threading.Thread):
 
         # Data accepted by BrewFather; OK if some values are ""; not sure what happens if fields are missing.
         self.postdata = {
-            "name": "",
+            "name": "Fermonitor",
             "temp": "",
             "aux_temp": "", # Fridge Temp
             "ext_temp": "", # Room Temp
@@ -89,11 +89,15 @@ class BrewFather (threading.Thread):
         self.stopThread = True
 
     # sets the data currently supported by my system, will expand with system
-    def setData(self, name, temp, gravity, dataTime):
-        self.postdata["name"] = str(name)
-        self.postdata["temp"] = str(round(float(temp),1))
-        self.postdata["gravity"] = "{:5.3f}".format(round(float(gravity),3))
-        self.dataTime = dataTime
+    def setData(self, _beer_temp, _aux_temp, _gravity, _dataTime):
+        if _beer_temp != None:
+            self.postdata["temp"] = str(round(float(_beer_temp),1))
+        if _aux_temp != None:
+            self.postdata["aux_temp"] = str(round(float(_aux_temp),1))
+        if _gravity != None:
+            self.postdata["gravity"] = "{:5.3f}".format(round(float(_gravity),3))
+        if _dataTime != None:
+            self.dataTime = _dataTime
 
     # method for connecting and updating BrewFather.app
     def _update(self):
@@ -111,7 +115,7 @@ class BrewFather (threading.Thread):
             params = json.dumps(self.postdata).encode('utf8')
             req = request.Request(self.sURL, data=params, headers={'content-type': 'application/json'})
             response = request.urlopen(req)
-            logger.debug("BrewFather: " + self.postdata["temp"] +" : " + self.postdata["gravity"])
+            logger.info("BrewFather: " + self.postdata["temp"] +"C, " + self.postdata["gravity"] + "SG, "+datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S"))
             self.lastUpdateTime = datetime.datetime.now()
 
         else:
@@ -146,6 +150,12 @@ class BrewFather (threading.Thread):
                 try:
                     if config["MessageLevel"] == "DEBUG":
                         logger.setLevel(logging.DEBUG)
+                    elif config["MessageLevel"] == "WARNING":
+                        logger.setLevel(logging.ERROR)
+                    elif config["MessageLevel"] == "ERROR":
+                        logger.setLevel(logging.WARNING)
+                    elif config["MessageLevel"] == "INFO":
+                        logger.setLevel(logging.INFO)
                     else:
                         logger.setLevel(logging.INFO)
                 except KeyError:
@@ -159,14 +169,28 @@ class BrewFather (threading.Thread):
                     self.sURL = config.get("UpdateURL")
                 else:
                     raise Exception
-                if config["UpdateIntervalSeconds"] != "":
-                    if int(config["UpdateIntervalSeconds"]) >= 900:
-                        self.interval = int(config.get("UpdateIntervalSeconds"))
+
+                try:
+                    if config["UpdateIntervalSeconds"] != "":
+                        if int(config["UpdateIntervalSeconds"]) >= 900:
+                            self.interval = int(config.get("UpdateIntervalSeconds"))
+                        else:
+                            logger.warning("Brewfather update interval cannot be less than 15min; using 900s")
+                            self.interval = MINIMUM_INTERVAL
                     else:
-                        logger.warning("Brewfather update interval cannot be less than 15min; using 900s")
-                        self.interval = MINIMUM_INTERVAL
-                else:
-                    raise Exception
+                        raise Exception
+                except:
+                    logger.warning("Error reading Brewfather update interval; using 900s")
+                    self.interval = MINIMUM_INTERVAL
+
+                try:
+                    if config["Device"] != "":
+                        self.postdata["name"] = config["Device"]
+                    else:
+                        raise Exception
+                except:
+                    self.postdata["name"] = "Fermonitor"
+                    
 
         except:
             self.bUpdate = False

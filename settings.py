@@ -33,10 +33,19 @@ CONFIGFILE = "fermonitor.ini"
 
 DEFAULT_LOG_INTERVAL = 900
 
+MEASURE_NONE = -1
+MEASURE_BEER = 0
+MEASURE_CHAMBER = 1
+
+CONTROL_TILT = 0
+CONTROL_ONEWIRETEMP = 1
+
 def init():
     global sLogFile
     global iLogIntervalSeconds
     global sTiltColor
+    global oneWireTempMeasure
+    global chamberControlTemp
 
     global bUseTilt
     global bUseLogFile
@@ -83,6 +92,32 @@ def init():
         logger.warning("No color specified for Tilt. Tilt not used.")
         sTiltColor = ""
     
+    try:
+        if config["OneWireTemp"] != "":
+            if config.get("OneWireTemp") == "BEER":
+                oneWireTempMeasure = MEASURE_BEER
+            elif config.get("OneWireTemp") == "CHAMBER":
+                oneWireTempMeasure = MEASURE_CHAMBER
+            else:
+                oneWireTempMeasure = MEASURE_NONE
+        else:
+            raise Exception
+    except:
+        oneWireTempMeasure = MEASURE_NONE
+        logger.warning("One-wire temperature sensor not used.")
+
+
+    if config["ChamberControl"] != "":
+        if config.get("ChamberControl") == "ONEWIRETEMP":
+            chamberControlTemp = CONTROL_ONEWIRETEMP
+        elif config.get("ChamberControl") == "TILT":
+            chamberControlTemp = CONTROL_TILT
+        else:
+            raise Exception("Need to specify what device provides temperature: ONEWIRETEMP or TILT")
+    else:
+        raise Exception("Need to specify what device provides temperature: ONEWIRETEMP or TILT")
+    
+
     try:
         if config["LogIntervalSeconds"] != "" and int(config.get("LogIntervalSeconds")) > 0:
             iLogIntervalSeconds = int(config.get("LogIntervalSeconds"))
