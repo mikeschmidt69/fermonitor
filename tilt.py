@@ -35,7 +35,7 @@ from setup_logger import logger
 import configparser
 from distutils.util import strtobool
 
-logger = logging.getLogger('tilt')
+logger = logging.getLogger('TILT')
 logger.setLevel(logging.INFO)
 
 RED = "RED"
@@ -109,26 +109,6 @@ class Tilt (threading.Thread):
         self.stopThread = True
 
         self.initialized = True
-
-    # Constructor for class
-    # This constructor requires passed paramters instead of reading from configuration file
-    # Most variables are specific to instance of class so multiple Tilt devices can be used at the same time
-#    def __init__(self, bluetoothDeviceId, color, interval):
-#        threading.Thread.__init__(self)
-#
-#        if not validColor(color):
-#            logger.ERROR("Configured color: "+color+" is not valid")
-#            sys.exit(1)
-#        self.bluetoothDeviceId = bluetoothDeviceId
-#        self.color = color # color of tilt that is being used
-#        self.interval = interval # interval in seconds the tilt should be read
-#    
-#        self.lastUpdateTime = datetime.datetime.now() - datetime.timedelta(seconds=interval) # last time the tilt was read
-#     
-#        self.validData = False # indicates if the current data is from a valid reading
-#        self.temp = -273.15 # last read temperature from tilt
-#        self.sg = 0.0 # last read specific gravity from tilt
-#        self.stopThread = True
 
 
     # Starts background thread that updates the data from Tilt hydrometer (temp, specific gravity) on regular basis.
@@ -216,9 +196,9 @@ class Tilt (threading.Thread):
                         if config["MessageLevel"] == "DEBUG":
                             logger.setLevel(logging.DEBUG)
                         elif config["MessageLevel"] == "WARNING":
-                            logger.setLevel(logging.ERROR)
-                        elif config["MessageLevel"] == "ERROR":
                             logger.setLevel(logging.WARNING)
+                        elif config["MessageLevel"] == "ERROR":
+                            logger.setLevel(logging.ERROR)
                         elif config["MessageLevel"] == "INFO":
                             logger.setLevel(logging.INFO)
                         else:

@@ -20,60 +20,61 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from urllib import request, parse
-import json
 import sys
-import requests
 import datetime
 import time
 import os
 import logging
 from setup_logger import logger
-import configparser
 from distutils.util import strtobool
 import settings
+
 import chamber
+import controller
 import tilt
 import brewfather
-import onewiretemp
 
-logger = logging.getLogger('fermonitor')
-logger.setLevel(logging.DEBUG)
+logger = logging.getLogger('FERMONITOR')
+logger.setLevel(logging.INFO)
 
+control = controller.Controller()
+chamber = chamber.Chamber(control)
+
+################################################################
 def main():
     
     logger.info("Starting Fermonitor...")
 
-    settings.init()
-    tempChamber = chamber.Chamber(settings.CONFIGFILE)
-    
+    settings.read()
+    chamber.setLogLevel(settings.logLevel)
+    control.setLogLevel(settings.logLevel)
+        
     # Start Tilt thread to read temp and gravity if tilt configuration file is specified
     if settings.bUseTilt:
         logger.debug("Starting Tilt Thread")
         tiltH = tilt.Tilt(settings.CONFIGFILE, settings.sTiltColor)
         tiltH.start()
+        time.sleep(10)
+        if settings.chamberControlTemp == settings.CONTROL_TILT:
+            chamber.setTilt(tiltH)
+
+    control.start()
+    control.setConfig(settings.onDelay, settings.beerTempAdjust, settings.chamberTempAdjust)
+    time.sleep(5)
+    chamber.setControlTemps(settings.temps,settings.tempDates,settings.beerTempBuffer, settings.chamberScaleBuffer)
+    chamber.start()
 
     # Start BrewFather thread to store temp and gravity
     logger.debug("Starting BrewFather Thread")
     bf = brewfather.BrewFather(settings.CONFIGFILE)
     bf.start()
-
-    # Start one-wire temperature sensor reading
-    tempSensor = onewiretemp.OneWireTemp(settings.CONFIGFILE)
-    tempSensor.start()
-
-    # Create log file if specified and doesn't exist and write headings
-    if settings.bUseLogFile and not os.path.exists(settings.sLogFile):
-        logger.debug("Creating log file and writing headings")
-        f = open(settings.sLogFile,"w")
-        f.write("Tilt Time,Tilt Temp,OneWire Time,OneWire Temp,Gravity\n")
-        f.close()
-
+    
     timeTilt = None
     tempTilt = None
     gravity = None
-    tempOneWire = None
-    timeOneWire = None
+    tempBeer = None
+    tempChamber = None
+    timeBeer = None
 
     timeLastLogged = None
 
@@ -84,6 +85,13 @@ def main():
     # Main loop for reading and logging data as well as controllng fermentor
     while True:
 
+        # Create log file if specified and doesn't exist and write headings
+        if settings.bUseLogFile and not os.path.exists(settings.sLogFile):
+            logger.debug("Creating log file and writing headings")
+            f = open(settings.sLogFile,"w")
+            f.write("Tilt Time,Tilt Temp,Controller Time,Beer Temp, Chamber Temp, Gravity\n")
+            f.close()
+
         if settings.bUseTilt:
             if tiltH.isDataValid():
                 # read latest stored data from tilt
@@ -91,67 +99,78 @@ def main():
                 tempTilt = tiltH.getTemp()
                 gravity = tiltH.getGravity()
                 timeTilt = tiltH.timeOfData() # time is used to tell if new data is available or not
-
-        if tempSensor.isDataValid():
-            tempOneWire = tempSensor.getTemp()
-            timeOneWire = tempSensor.timeOfData()
-
-        if settings.oneWireTempMeasure == settings.MEASURE_BEER and settings.chamberControlTemp == settings.CONTROL_ONEWIRETEMP:
-            beer_temp = tempOneWire
-            beer_time = timeOneWire
         else:
+            chamber.setTilt(None)
+
+        tempBeer = control.getBeerTemp()
+        tempChamber = control.getFridgeTemp()
+        timeBeer = control.timeOfData()
+
+        if settings.chamberControlTemp == settings.CONTROL_BEER:
+            beer_temp = tempBeer
+            beer_time = timeBeer
+            chamber.setTilt(None)
+        elif settings.chamberControlTemp == settings.CONTROL_TILT and settings.bUseTilt:
             beer_temp = tempTilt
             beer_time = timeTilt
+            chamber.setTilt(tiltH)
 
-        if settings.oneWireTempMeasure == settings.MEASURE_CHAMBER:
-            aux_temp = tempOneWire
+        aux_temp = tempChamber
 
-        if (beer_temp != None or gravity != None) and beer_time != None:
+        if (beer_temp != None or gravity != None or aux_temp != None) and beer_time != None:
             bf.setData(beer_temp, aux_temp, gravity, beer_time)
                 
         if settings.bUseLogFile:
             curTime = datetime.datetime.now()
 
             # Only log if first log or (logging interval has experied and there is new data)
-            if (timeLastLogged == None and (tempTilt != None or tempOneWire != None or gravity != None)) or \
+            if timeLastLogged == None or \
                 (curTime > timeLastLogged + datetime.timedelta(seconds=settings.iLogIntervalSeconds) and \
-                     ((timeTilt != None and timeTilt > timeLastLogged) or \
-                         (timeOneWire != None and timeOneWire > timeLastLogged))):
+                     ((timeTilt != None and timeTilt > timeLastLogged) or (timeBeer != None and timeBeer > timeLastLogged))):
 
                 logger.debug("Logging data to CSV file")
 
-                csv = ""
+                outstr = ""
+                if timeTilt != None:
+                    outstr = outstr + timeTilt.strftime("%d.%m.%Y %H:%M:%S")
+                outstr = outstr + ","
+                
+                if tempTilt != None:
+                    outstr = outstr + str(round(float(tempTilt),1))
+                outstr = outstr + ","
+                
+                if timeBeer != None:
+                    outstr = outstr + timeBeer.strftime("%d.%m.%Y %H:%M:%S")
+                outstr = outstr + ","
 
-                if timeTilt == None:
-                    csv = " ,"
-                else:
-                    csv = timeTilt.strftime("%d.%m.%Y %H:%M:%S") + ","
-                if tempTilt == None:
-                    csv = csv + " ,"
-                else:
-                    csv = csv + str(round(float(tempTilt),1)) + ","
-                if timeOneWire == None:
-                    csv = csv + " ,"
-                else:
-                    csv = csv + timeOneWire.strftime("%d.%m.%Y %H:%M:%S") + ","
-                if tempOneWire == None:
-                    csv = csv + " ,"
-                else:
-                    csv = csv + str(round(float(tempOneWire),1)) + ","
-                if gravity == None:
-                    csv = csv + " \n"
-                else:
-                    csv = csv + "{:5.3f}".format(round(float(gravity),3)) +"\n"
-                
+                if tempBeer != None:
+                    outstr = outstr + str(round(float(tempBeer),1))
+                outstr = outstr + ","
+
+                if tempChamber != None:
+                    outstr = outstr + str(round(float(tempChamber),1))
+                outstr = outstr + ","
+
+                if gravity != None:
+                    outstr = outstr + "{:5.3f}".format(round(float(gravity),3))
+                outstr = outstr + "\n"
+
                 f= open(settings.sLogFile,"a")
-                f.write(csv)
+                f.write(outstr)
                 f.close()
-                
+                logger.info("CSV ("+curTime.strftime("%d.%m.%Y %H:%M:%S")+"): "+outstr.strip("\n"))
                 timeLastLogged = curTime
 
-        tempChamber.control(beer_temp)
-
         time.sleep(10)
+
+        settings.read()
+        # update parameters
+        logger.setLevel(settings.logLevel)
+        chamber.setControlTemps(settings.temps, settings.tempDates, settings.beerTempBuffer, settings.chamberScaleBuffer)
+        chamber.setLogLevel(settings.logLevel)
+        control.setLogLevel(settings.logLevel)
+        control.setConfig(settings.onDelay, settings.beerTempAdjust, settings.chamberTempAdjust)
+
 
 if __name__ == "__main__": #dont run this as a module
 

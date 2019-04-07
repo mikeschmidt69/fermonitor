@@ -22,5 +22,5 @@
 import logging
 import sys
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger('fermonitor')
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger('fermonitor2')

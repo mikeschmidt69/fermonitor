@@ -19,254 +19,135 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import os
+import threading
 import datetime
-import RPi.GPIO as GPIO
+import time
 import logging
+import controller
+import tilt
 from setup_logger import logger
-import configparser
 
-logger = logging.getLogger('fridge')
+logger = logging.getLogger('CHAMBER')
 logger.setLevel(logging.INFO)
 
-# Initialize the GPIO Pins
-os.system('modprobe w1-gpio') # Turns on the GPIO module
+UPDATE_INVERVAL = 10 # update interval in seconds
 
 DEFAULT_TEMP = 18
-DEFAULT_COOLING_ON_DELAY = 10
-DEFAULT_HEATING_ON_DELAY = 10
+DEFAULT_BUFFER_BEER_TEMP = 0.5
+DEFAULT_BUFFER_CHAMBER_SCALE = 5.0
 
-INVALID_GPIO = -1
+class Chamber(threading.Thread):
 
-class Chamber:
+    def __init__(self, _controller):
+        threading.Thread.__init__(self)
+        self.stopThread = True              # flag used for stopping the background thread
+        self.controller = _controller
+        self.tilt = None
+        self.tempDates = [datetime.datetime.now()]
+        self.targetTemps = [DEFAULT_TEMP]
+        self.bufferBeerTemp = DEFAULT_BUFFER_BEER_TEMP
+        self.bufferChamberScale = DEFAULT_BUFFER_CHAMBER_SCALE
+        self.beerTemp = DEFAULT_TEMP
+        self.chamberTemp = DEFAULT_TEMP
 
-    def __init__(self, _config):
-        self.initialized = False
-        self.config = _config
-        self.tempDates = []
-        self.temps = []
-        self.coolingOnDelay = DEFAULT_COOLING_ON_DELAY # interval in minutes between powering off and on cooling source
-        self.heatingOnDelay = DEFAULT_HEATING_ON_DELAY # interval in minutes between powering off and on heating source
-        self.isCooling = False
-        self.isHeating = False
-        self.timeCoolingOff = datetime.datetime.now()-datetime.timedelta(minutes=DEFAULT_COOLING_ON_DELAY)
-        self.timeHeatinggOff = datetime.datetime.now()-datetime.timedelta(minutes=DEFAULT_HEATING_ON_DELAY)
-        self.coolingGPIO = INVALID_GPIO
-        self.heatingGPIO = INVALID_GPIO
+
+    # Starts the background thread
+    def run(self):
+        logger.info("Starting Chamber")
+        self.stopThread = False
         
-        # Set the GPIO naming conventions
-        GPIO.setmode (GPIO.BCM)
-        GPIO.setwarnings(False)
+        while self.stopThread != True:
+            self.control()
+            time.sleep(UPDATE_INVERVAL)
 
-        self._readConf()
-        self.initialized = True
+        logger.info("Chamber Stopped")
+
 
     def __del__(self):
-        GPIO.cleanup()
+        logger.debug("Delete chamber class")
 
-    def control(self, _temp):
 
-        if _temp == None:
-            return
+    def setControlTemps(self, _targetTemps, _tempDates, _bufferBeerTemp, _bufferChamberScale):
+        self.targetTemps = _targetTemps
+        self.tempDates = _tempDates
+        self.bufferBeerTemp = _bufferBeerTemp
+        self.bufferChamberScale = _bufferChamberScale
 
-        self.coolingOnDelay
-        self.heatingOnDelay
-        self.isCooling
-        self.isHeating
-        self.timeCoolingOff
-        self.timeHeatinggOff
+    
+    def setTilt(self, _tilt):
+        if _tilt is None:
+            self.tilt = None
+        else:
+            self.tilt = _tilt
+
+
+    def control(self):
+        self.controller
+        self.targetTemps
         self.tempDates
-        self.temps
-        self.coolingGPIO
-        self.heatingGPIO
+        self.bufferBeerTemp
+        self.bufferChamberScale
+
+        if self.tilt is not None:
+            if self.tilt.isDataValid():
+                self.beerTemp = self.tilt.getTemp()
+        else:
+            self.beerTemp = self.controller.getBeerTemp()
+
+        self.chamberTemp = self.controller.getFridgeTemp()
     
         _curTime = datetime.datetime.now()
-    
-        self._readConf()
-        
+            
         # check which of the temperature change dates have passed
         x = -1
         for dt in self.tempDates:
             if dt < _curTime:
                 x = x + 1
+            
+        # check if last date has been reached. If so, heating/cooling should stop
+        if x == len(self.tempDates)-1:
+            x = -2
         
         # No configured dates have passed, leave chamer powered off
         if x == -1:
-            self._setPower(False, False)
+            # Turn off heating and cooling
+            self.controller.stopHeatingCooling
             logger.debug("Leaving chamber powered off until first date reached: " + self.tempDates[x+1].strftime("%d.%m.%Y %H:%M:%S"))
                 
-        elif x > -1:
-            _target = self.temps[x]
-            if _temp > _target and self.coolingGPIO != INVALID_GPIO:
-                if self.isCooling == False and _curTime < self.timeCoolingOff + datetime.timedelta(minutes=self.coolingOnDelay):
-                    logger.debug("T: "+str(_temp)+" is higer than target: "+str(_target)+" but cooling cannot be turned on yet.")
-                else:
-                    # Turn cooling ON and ensure heating is OFF
-                    self._setPower(True, False)
-                    logger.debug("Cooling turned ON - T: "+str(_temp)+" is higer than target: "+str(_target))
+        elif x == -2:
+            # Last configured date reached. Heating/cooling should be stopped
+            self.controller.stopHeatingCooling
+            logger.debug("Leaving chamber powered off; last date reached: " + self.tempDates[len(self.tempDates)-1].strftime("%d.%m.%Y %H:%M:%S"))
 
-            elif _temp < _target and self.heatingGPIO != INVALID_GPIO:
-                if self.isHeating == False and _curTime < self.timeHeatinggOff + datetime.timedelta(minutes=self.heatingOnDelay):
-                    logger.debug("T: "+str(_temp)+" is lower than target: "+str(_target)+" but heating cannot be turned on yet.")
-                else:
-                    # Turn heating ON and ensure cooling is OFF
-                    self._setPower(False, True)
-                    logger.debug("Heating turned ON - T: "+str(_temp)+" is higer than target: "+str(_target))
+        elif x > -1:
+            _target = self.targetTemps[x]
+            if self.beerTemp > (_target + self.bufferBeerTemp) and (_target - self.chamberTemp) < self.bufferChamberScale*(self.beerTemp - _target):
+                # Turn cooling ON
+                self.controller.startCooling()
+                logger.debug("Cooling to be turned ON - Target: " + str(_target) + "; Beer: " + str(self.beerTemp) + "; Chamber: " + str(self.chamberTemp) + "; Beer Buffer: " + str(self.bufferBeerTemp) + "; Chamber Scale: " + str(self.bufferChamberScale))
+
+            elif self.beerTemp < (_target - self.bufferBeerTemp) and (self.chamberTemp - _target) < self.bufferChamberScale*(_target - self.beerTemp):
+                # Turn heating ON
+                self.controller.startHeating()
+                logger.debug("Heating to be turned ON - Target: " + str(_target) + "; Beer: " + str(self.beerTemp) + "; Chamber: " + str(self.chamberTemp) + "; Beer Buffer: " + str(self.bufferBeerTemp) + "; Chamber Scale: " + str(self.bufferChamberScale))
             else:
-                self._setPower(False, False)
-                logger.debug("Chamber is at right setting or lacking nesessary heating/cooling capabilities. T: "+str(_temp)+" Target: "+str(_target))
+                self.controller.stopHeatingCooling()
+                logger.debug("No heating/cooling needed - Target: " + str(_target) + "; Beer: " + str(self.beerTemp) + "; Chamber: " + str(self.chamberTemp) + "; Beer Buffer: " + str(self.bufferBeerTemp) + "; Chamber Scale: " + str(self.bufferChamberScale))
         else:
-            logger.debug("Should never get here: x < -1")
+            self.controller.stopHeatingCooling
+            logger.error("Should never get here: x < -1")
         return  
 
-
-    def _setPower(self, _turnOnCooling, _turnOnHeating):
-        if self.heatingGPIO != INVALID_GPIO:
-            if _turnOnHeating:
-                GPIO.output(self.heatingGPIO, GPIO.HIGH)
-                if self.isHeating == False:
-                    logger.info("Turned on heating: " + datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S"))
-                self.isHeating = True
-            else:
-                GPIO.output(self.heatingGPIO, GPIO.LOW)
-                if self.isHeating:
-                    self.timeHeatingOff = datetime.datetime.now()
-                    logger.info("Turned on heating: " + self.timeHeatingOff.strftime("%d.%m.%Y %H:%M:%S"))
-                    self.isHeating = False
-        if self.coolingGPIO != INVALID_GPIO:
-            if _turnOnCooling:
-                GPIO.output(self.coolingGPIO, GPIO.HIGH)
-                if self.isCooling == False:
-                    logger.info("Turned on cooling: " + datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S"))
-                self.isCooling = True
-            else:
-                GPIO.output(self.coolingGPIO, GPIO.LOW)
-                if self.isCooling:
-                    self.timeCoolingOff = datetime.datetime.now()
-                    logger.info("Turned on cooling: " + self.timeCoolingOff.strftime("%d.%m.%Y %H:%M:%S"))
-                    self.isCooling = False
-        return
-
-    def _readConf(self):
-        self.tempDates
-        self.temps
-        self.config
-        self.coolingOnDelay
-        self.heatingOnDelay
-        self.coolingGPIO
-        self.heatingGPIO
-        self.initialized
-
-        self.tempDates = []
-        self.temps = []
-
-        logger.debug("Reading chamber settings: "+ self.config)
-        try:
-            if os.path.isfile(self.config) == False:
-                raise Exception
-    
-            ini = configparser.ConfigParser()
-            ini.read(self.config)
-        except:
-            raise IOError("Fermonitor configuration file is not valid: "+self.config)
-        
-        try:
-            config = ini['Chamber']
-        except:
-            raise IOError("[Chamber] section not found in fermonitor.ini")
-
-        try:
-            if config["MessageLevel"] == "DEBUG":
-                logger.setLevel(logging.DEBUG)
-            elif config["MessageLevel"] == "WARNING":
-                logger.setLevel(logging.ERROR)
-            elif config["MessageLevel"] == "ERROR":
-                logger.setLevel(logging.WARNING)
-            elif config["MessageLevel"] == "INFO":
-                logger.setLevel(logging.INFO)
-            else:
-                logger.setLevel(logging.INFO)
-        except KeyError:
+    # set logging level
+    def setLogLevel(self, level):
+        if level == logging.DEBUG:
+            logger.setLevel(logging.DEBUG)
+        elif level == logging.WARNING:
+            logger.setLevel(logging.WARNING)
+        elif level == logging.ERROR:
+            logger.setLevel(logging.ERROR)
+        elif level == logging.INFO:
             logger.setLevel(logging.INFO)
-    
-        try:
-            if config["Dates"] != "":
-                dts = config["Dates"].split(",")
-                for x in dts:
-                    self.tempDates.append(datetime.datetime.strptime(x, '%d/%m/%Y %H:%M:%S'))
-            else:
-                raise Exception
-        except:
-            self.tempDates = [datetime.datetime.now()]
-            logger.warning("Invalid date values; using default: "+self.tempDates[0].strftime("%d.%m.%Y %H:%M:%S"))
-
-        try:
-            if config["Temps"] != "":
-                t = config["Temps"].split(",")
-                for x in t:
-                    self.temps.append(float(x))
-            else:
-                raise Exception
-        except:
-            self.temps = [DEFAULT_TEMP]
-            logger.warning("Invalid temp values; using default: "+str(self.temps[0]))
-        
-        if len(self.tempDates) != len(self.temps):
-            self.tempDates = [datetime.datetime.now()]
-            self.temps = [DEFAULT_TEMP]
-            logger.warning("Temp and dates have different quantities; setting both to defaults: "+str(self.temps[0])+"/"+self.tempDates[0].strftime("%d.%m.%Y %H:%M:%S"))
-
-        try:
-            if config["CoolOnDelay"] != "" and int(config["CoolOnDelay"]) >= 0:
-                self.coolingOnDelay = int(config.get("CoolOnDelay"))
-            else:
-                raise Exception
-        except:
-            if self.coolingOnDelay != DEFAULT_COOLING_ON_DELAY or self.initialized == False:
-                self.coolingOnDelay = DEFAULT_COOLING_ON_DELAY
-                logger.warning("Invalid CoolOnDelay in configuration; using default: "+str(self.coolingOnDelay))
-
-        try:
-            if config["HeatOnDelay"] != "" and int(config["HeatOnDelay"]) >= 0:
-                self.heatingOnDelay = int(config.get("HeatOnDelay"))
-            else:
-                raise Exception
-        except:
-            if self.heatingOnDelay != DEFAULT_HEATING_ON_DELAY or self.initialized == False:
-                self.heatingOnDelay = DEFAULT_HEATING_ON_DELAY
-                logger.warning("Invalid HeatOnDelay in configuration; using default: "+str(self.heatingOnDelay))
-
-        try:
-            if config["CoolingGPIO"] != "" and int(config["CoolingGPIO"]) >= 0:
-                pin = int(config.get("CoolingGPIO"))
-                if pin != self.coolingGPIO:
-                    self._setPower(False, False)
-                    self.coolingGPIO = pin
-                    GPIO.setup(self.coolingGPIO, GPIO.OUT)
-                    self._setPower(False, False)
-                    self.timeCoolingOff = datetime.datetime.now()-datetime.timedelta(minutes=self.coolingOnDelay)                
-            else:
-                raise Exception
-        except:
-            if self.coolingGPIO != INVALID_GPIO or self.initialized == False:
-                self.coolingGPIO = INVALID_GPIO
-                logger.warning("Invalid or missing CoolingGPIO configuration; cooling device is not used.")
-
-        try:
-            if config["HeatingGPIO"] != "" and int(config["HeatingGPIO"]) >= 0:
-                pin = int(config.get("HeatingGPIO"))
-                if pin != self.heatingGPIO:
-                    self._setPower(False, False)
-                    self.heatingGPIO = pin
-                    GPIO.setup(self.heatingGPIO, GPIO.OUT)
-                    self._setPower(False, False)
-                    self.timeHeatingOff = datetime.datetime.now()-datetime.timedelta(minutes=self.coolingOnDelay)
-            else:
-                raise Exception
-        except:
-            if self.heatingGPIO != INVALID_GPIO or self.initialized == False:
-                self.heatingGPIO = INVALID_GPIO
-                logger.warning("Invalid or missing HeatingGPIO configuration; heating device is not used.")
-
-        return
+        else:
+            logger.setLevel(logging.INFO)
 

@@ -32,7 +32,7 @@ from setup_logger import logger
 import configparser
 from distutils.util import strtobool
 
-logger = logging.getLogger('brewfather')
+logger = logging.getLogger('BREWFATHER')
 logger.setLevel(logging.INFO)
 
 MINIMUM_INTERVAL = 900 # minimum number of seconds the BrewFather.app can be updated (i.e. 15min)
@@ -115,12 +115,12 @@ class BrewFather (threading.Thread):
             params = json.dumps(self.postdata).encode('utf8')
             req = request.Request(self.sURL, data=params, headers={'content-type': 'application/json'})
             response = request.urlopen(req)
-            logger.info("BrewFather: " + self.postdata["temp"] +"C, " + self.postdata["gravity"] + "SG, "+datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S"))
+            logger.info("BrewFather: " + self.postdata["temp"] +"C, " + self.postdata["gravity"] + "SG, " + self.postdata["aux_temp"] +"C, " + datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S"))
             self.lastUpdateTime = datetime.datetime.now()
 
         else:
             logger.debug("Update paramters:\nbUpdate = "+str(self.bUpdate)+"\nsUrl = "+self.sURL+"\npostdata.Name = "+self.postdata["name"] + \
-                "\npostdata.temp = "+self.postdata["temp"]+"\npostdata.gravity = "+self.postdata["gravity"] + \
+                "\npostdata.temp = "+self.postdata["temp"]+"\npostdata.gravity = "+self.postdata["gravity"] + "\npostdata.aux_temp = "+self.postdata["aux_temp"] + \
                     "\ndataTime = "+self.dataTime.strftime("%d.%m.%Y %H:%M:%S") + \
                         "\nupdateTime = "+updateTime.strftime("%d.%m.%Y %H:%M:%S") + \
                             "\nlastUpdateTime = "+self.lastUpdateTime.strftime("%d.%m.%Y %H:%M:%S") + \
@@ -151,9 +151,9 @@ class BrewFather (threading.Thread):
                     if config["MessageLevel"] == "DEBUG":
                         logger.setLevel(logging.DEBUG)
                     elif config["MessageLevel"] == "WARNING":
-                        logger.setLevel(logging.ERROR)
-                    elif config["MessageLevel"] == "ERROR":
                         logger.setLevel(logging.WARNING)
+                    elif config["MessageLevel"] == "ERROR":
+                        logger.setLevel(logging.ERROR)
                     elif config["MessageLevel"] == "INFO":
                         logger.setLevel(logging.INFO)
                     else:
