@@ -1,4 +1,3 @@
-#
 # Copyright (c) 2019 Michael Schmidt
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -19,8 +18,6 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-ON_DELAY_STEP = 60000 # 1 minute in milliseconds
-
 import os
 import threading
 import time
@@ -32,11 +29,12 @@ from setup_logger import logger
 logger = logging.getLogger('CONTROLLER')
 logger.setLevel(logging.INFO)
 
-NUMBER_TEMP_AVERAGE = 20
-UPDATE_INVERVAL = 10 # update interval in seconds
+NUMBER_TEMP_AVERAGE = 20        # number of temperature readings that should be averaged to avoid jumps in temperature from reading to reading
+UPDATE_INVERVAL = 10            # frequency that controller should read data from serial connection
 PORT = "/dev/ttyUSB0"
 RATE = 9600
 
+# Handles communication with Arduino over serial interface to read wired temperaturess and turn on/off heating and cooling devices
 class Controller (threading.Thread):
 
     # Constructor using a configuration file for setting and updating properties to connect to the BrewFather app
@@ -44,19 +42,19 @@ class Controller (threading.Thread):
         threading.Thread.__init__(self)
     
         self.stopThread = True              # flag used for stopping the background thread
-        self.onDelay = 0                    # delay for when heating/cooling can turn ON after being turned OFF
-        self.requestedDelay = -1
-        self.beerTemp = []
-        self.fridgeTemp = []
-        self.internalTemp = 0.0
-        self.adjustBeerT = 0.0
-        self.adjustFridgeT = 0.0
+        self.onDelay = -1                   # delay for when heating/cooling can turn ON after being turned OFF
+        self.requestedDelay = -1            # new delay for turning on/off heating and cooling that should be requested from Arduino
+        self.beerTemp = 0.0                 # temperatures of beer that should be averaged to avoid jumps from reading to reading
+        self.fridgeTemp = 0.0               # temperatures of refridgerator that should be average to avoid jumps from reading to reading
+        self.internalTemp = 0.0             # internal temperature of control box
+        self.adjustBeerT = 0.0              # adjustment to beer temperature to correct for sensor offset
+        self.adjustFridgeT = 0.0            # adjustement to refridgerator temperature to correct for sensor offset
         
 
-        self.lastUpdateTime = datetime.datetime.now() - datetime.timedelta(seconds=UPDATE_INVERVAL) # last time the sensor was read
+        self.lastUpdateTime = datetime.datetime.now() - datetime.timedelta(seconds=UPDATE_INVERVAL) # last time the data was read
 
-        self.ser = serial.Serial(PORT,RATE)
-        self.ser.flushInput()
+        self.ser = serial.Serial(PORT,RATE) # sets up serial communication
+        self.ser.flushInput()               # flush any data that might be in channel
 
     # Starts the background thread
     def run(self):
@@ -64,8 +62,7 @@ class Controller (threading.Thread):
         self.stopThread = False
         
         while self.stopThread != True:
-            self._requestCurrentDelay()
-
+            # reads and processes all data from serial queue
             while self.ser.inWaiting() > 0:
                 inputValue = self.ser.readline()
                 str = inputValue.decode()
@@ -73,21 +70,11 @@ class Controller (threading.Thread):
                 logger.debug("RESPONSE Raw: "+str)
                 self._processControllerResponse(str)
 
-            if self.requestedDelay != -1:
-                if self.requestedDelay > self.onDelay:
-                    steps = round ((self.requestedDelay-self.onDelay)/ON_DELAY_STEP)
-                    for x in range(steps):
-                        self._requestLongerDelay()
-                if self.requestedDelay < self.onDelay:
-                    steps = round ((self.onDelay-self.requestedDelay)/ON_DELAY_STEP)
-                    for x in range(steps):
-                        self._requestShorterDelay()
-                self.requestedDelay = -1
+            self._handleDelay()
 
             time.sleep(UPDATE_INVERVAL)
 
         logger.info("Controller Stopped")
-
 
     # handles data from Arduino over USB to RPi. Format is assumed to be "x:y" where x is the type of data and y is the content
     # D = ON delay between turning off and back on a conntected heating or cooling device; data is in milliseconds
@@ -115,7 +102,6 @@ class Controller (threading.Thread):
     # I = Internal
     #   # = temperature of inside of controller to ensure device doesn't overheat
     def _processControllerResponse(self, str):
-        
         try:
             sTime = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")
 
@@ -129,46 +115,46 @@ class Controller (threading.Thread):
                 elif rhs == "+":
                     logger.debug("RESPONSE ("+sTime+"): Cooling requested to be turned ON")
                 else:
-                    logger.debug("RESPONSE ("+sTime+"): Cooling will be turned on in: "+rhs+"ms")
+                    logger.debug("RESPONSE ("+sTime+"): Cooling will be turned on in: "+rhs+"m")
             elif lhs == "C":
                 if rhs == "-":
                     logger.info("RESPONSE ("+sTime+"): Cooling turned OFF")
                 elif rhs == "+":
                     logger.info("RESPONSE ("+sTime+"): Cooling turned ON")
                 else:
-                    logger.debug("RESPONSE ("+sTime+"): Cooling on for "+rhs+"ms")
+                    logger.debug("RESPONSE ("+sTime+"): Cooling on for "+rhs+"m")
             elif lhs == "h":
                 if rhs == "-":
                     logger.debug("RESPONSE ("+sTime+"): Heating requested to be turned OFF")
                 elif rhs == "+":
                     logger.debug("RESPONSE ("+sTime+"): Heating requested to be turned ON")
                 else:
-                    logger.debug("RESPONSE ("+sTime+"): Heating will be turned on in: "+rhs+"ms")
+                    logger.debug("RESPONSE ("+sTime+"): Heating will be turned on in: "+rhs+"m")
             elif lhs == "H":
                 if rhs == "-":
                     logger.info("RESPONSE ("+sTime+"): Heating turned OFF")
                 elif rhs == "+":
                     logger.info("RESPONSE ("+sTime+"): Heating turned ON")
                 else:
-                    logger.debug("RESPONSE ("+sTime+"): Cooling on for "+rhs+"ms")
+                    logger.debug("RESPONSE ("+sTime+"): Cooling on for "+rhs+"m")
             elif lhs == "O":
-                logger.debug("RESPONSE ("+sTime+"): Heating/Cooling are OFF")
+                logger.debug("RESPONSE ("+sTime+"): Heating/Cooling are OFF for "+rhs+"m")
             elif lhs == "F":
-                _fridgeTemp = float(rhs) + self.adjustFridgeT
-                self.fridgeTemp = self._addTemp(NUMBER_TEMP_AVERAGE, self.fridgeTemp, _fridgeTemp)
+                self.fridgeTemp = float(rhs) + self.adjustFridgeT
                 self.lastUpdateTime = datetime.datetime.now()
                 logger.debug("RESPONSE ("+sTime+"): Fridge temperature: "+rhs+"C")
             elif lhs == "B":
-                _beerTemp = float(rhs) + self.adjustBeerT
-                self.beerTemp = self._addTemp(NUMBER_TEMP_AVERAGE, self.beerTemp, _beerTemp)
+                self.beerTemp = float(rhs) + self.adjustBeerT
                 self.lastUpdateTime = datetime.datetime.now()
                 logger.debug("RESPONSE ("+sTime+"): Beer temperature: "+rhs+"C")
             elif lhs == "I":
                 self.internalTemp = float(rhs)
                 self.lastUpdateTime = datetime.datetime.now()
                 logger.debug("RESPONSE ("+sTime+"): Internal temperature: "+rhs+"C")
+
         except BaseException as e:
-            logger.error( "ERROR: %s\n" % str(e) )
+            logger.error("ERROR: %s\n" % str(e))
+
 
     # send request to Arduino "=" to report current on delay
     def _requestCurrentDelay(self):
@@ -176,19 +162,28 @@ class Controller (threading.Thread):
         logger.debug("REQUEST ("+sTime+"): current delay")
         self.ser.write(b'=\n')
 
-    # send request to Arduino "+" to increase the on delay on step
-    def _requestLongerDelay(self):
+    def _handleDelay(self):
         sTime = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")
-        logger.debug("REQUEST ("+sTime+"): longer delay")
-        self.ser.write(b'+\n')
 
-    # send request to Arduino "-" to decrease the on delay on step
-    def _requestShorterDelay(self):
-        sTime = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")
-        logger.debug("REQUEST ("+sTime+"): shorter delay")
-        self.ser.write(b'-\n')
+        # check if delay period has been requested (!=-1) and if the current delay period has been received (!= -1)
+        if self.requestedDelay != -1 and self.onDelay != -1:
 
-    # stops the background thread and requests heating and cooling to be stopped
+            # if requested delay is longer than current, calculate # of steps delay should be increased and send request over serial
+            if self.requestedDelay > self.onDelay:
+                steps = round (self.requestedDelay-self.onDelay)
+                for x in range(steps):
+                    logger.debug("REQUEST ("+sTime+"): longer delay")
+                    self.ser.write(b'+\n')
+            # if requested delay is shorter than current, calculate # of steps delay should be decreased and send request over serial
+            if self.requestedDelay < self.onDelay:
+                steps = round (self.onDelay-self.requestedDelay)
+                for x in range(steps):
+                    logger.debug("REQUEST ("+sTime+"): shorter delay")
+                    self.ser.write(b'-\n')
+            # mark that requested delay has been handled
+            self.requestedDelay = -1
+
+                # stops the background thread and requests heating and cooling to be stopped
     def stop(self):
         self.stopHeatingCooling()
         self.stopThread = True
@@ -213,7 +208,7 @@ class Controller (threading.Thread):
 
     # configure the delay between turning off/on of the heating and cooling devices connected to controiller
     def setConfig(self, _delay, _adjustBeerT, _adjustFridgeT):
-        self.requestedDelay = _delay * ON_DELAY_STEP
+        self.requestedDelay = _delay
         self.adjustBeerT = _adjustBeerT
         self.adjustFridgeT = _adjustFridgeT
 
@@ -223,34 +218,11 @@ class Controller (threading.Thread):
 
     # returns beer temperature
     def getBeerTemp(self):
-        _tempSum = 0.0
-        
-        for tmp in self.beerTemp:
-            _tempSum = _tempSum + tmp
-
-        _temp = 0.0
-
-        if len(self.beerTemp) > 0:
-            _temp = _tempSum/len(self.beerTemp)
-        else:
-            _temp = _tempSum
-        return round(float(_temp),1)
+        return round(float(self.beerTemp),1)
 
     # returns fridge temperature
-    def getFridgeTemp(self):
-        _tempSum = 0.0
-        
-        for tmp in self.fridgeTemp:
-            _tempSum = _tempSum + tmp
-
-        _temp = 0.0
-
-        if len(self.fridgeTemp) > 0:
-            _temp = _tempSum/len(self.fridgeTemp)
-        else:
-            _temp = _tempSum
-    
-        return round(float(_temp),1)
+    def getFridgeTemp(self):    
+        return round(float(self.fridgeTemp),1)
 
     # returns controller's internal temperature
     def getInternalTemp(self):
@@ -268,10 +240,3 @@ class Controller (threading.Thread):
             logger.setLevel(logging.INFO)
         else:
             logger.setLevel(logging.INFO)
-
-    def _addTemp(self, _size, _array, _temp):
-        while len(_array) > _size - 1:
-            _array.pop(0)
-        _array.append(_temp)
-        return _array
-        
