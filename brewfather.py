@@ -36,17 +36,17 @@ logger = logging.getLogger('BREWFATHER')
 logger.setLevel(logging.INFO)
 
 MINIMUM_INTERVAL = 900 # minimum number of seconds the BrewFather.app can be updated (i.e. 15min)
+CONFIGFILE = "brewfather.ini"
 
 # Brewfather class used for passing brew related logging data to BrewFather.app so it can be displayed for batch connected in the app.
 class BrewFather (threading.Thread):
 
     # Constructor using a configuration file for setting and updating properties to connect to the BrewFather app
-    def __init__(self, configFile):
+    def __init__(self):
         threading.Thread.__init__(self)
     
-        if os.path.isfile(configFile) == False:
-            raise IOError("BrewFather configuration file is not valid: "+configFile)
-        self.configFile = configFile        # config file containing class properties
+        if os.path.isfile(CONFIGFILE) == False:
+            raise IOError("BrewFather configuration file is not valid: "+CONFIGFILE)
         self.bUpdate = False                # flag indicating if BrewFather should be updated with data or not; useful for debugging
         self.sURL = ""                      # custom URL provided in the BrewFather app where data should be sent in JSON format
         self.interval = MINIMUM_INTERVAL    # interval in seconds for updating BrewFather; BrewFather rejects updates more often than 15min
@@ -78,7 +78,7 @@ class BrewFather (threading.Thread):
         logger.info("Starting BrewFather Logging")
         self.stopThread = False
         while self.stopThread != True:
-            self._readConf(self.configFile)
+            self._readConf()
             self._update() 
             time.sleep(60)
         logger.info("BrewFather Monitoring Stopped")
@@ -96,7 +96,7 @@ class BrewFather (threading.Thread):
             self.postdata["aux_temp"] = str(round(float(_aux_temp),1))
         if _gravity != None:
             self.postdata["gravity"] = "{:5.3f}".format(round(float(_gravity),3))
-        if _dataTime != None:
+        if _dataTime != None and (_beer_temp != None or _aux_temp != None or _gravity != None):
             self.dataTime = _dataTime
 
     # method for connecting and updating BrewFather.app
@@ -109,7 +109,7 @@ class BrewFather (threading.Thread):
         # check relevant data for the system is valid
         # check the data has been updated since last update
         if self.bUpdate and self.sURL != "" and datetime.datetime.now() > updateTime and \
-            self.postdata["name"] != "" and self.postdata["temp"] != "" and self.postdata["gravity"] != "" and \
+            self.postdata["name"] != "" and \
             self.dataTime > self.lastUpdateTime:
             
             params = json.dumps(self.postdata).encode('utf8')
@@ -127,20 +127,20 @@ class BrewFather (threading.Thread):
                                "\nCurrent Time = "+datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S"))
 
 
-    # Read class parameters from passed configuration ini file.
+    # Read class parameters from configuration ini file.
     # Format:
     # [BrewFather]
     # Update = False
     # UpdateURL = http://log.brewfather.net/stream?id=CdetYZYm9XNP1R
     # UpdateIntervalSeconds = 1800
-    def _readConf(self, configFile):
+    def _readConf(self):
 
         try:
-            if os.path.isfile(configFile) == False:
-                logger.error("BrewFather configuration file is not valid: "+configFile)
+            if os.path.isfile(CONFIGFILE) == False:
+                logger.error("BrewFather configuration file is not valid: "+CONFIGFILE)
 
             ini = configparser.ConfigParser()
-            ini.read(configFile)
+            ini.read(CONFIGFILE)
 
             if 'BrewFather' in ini:
                 logger.debug("Reading BrewFather config")
@@ -172,7 +172,7 @@ class BrewFather (threading.Thread):
 
                 try:
                     if config["UpdateIntervalSeconds"] != "":
-                        if int(config["UpdateIntervalSeconds"]) >= 900:
+                        if int(config["UpdateIntervalSeconds"]) >= MINIMUM_INTERVAL:
                             self.interval = int(config.get("UpdateIntervalSeconds"))
                         else:
                             logger.warning("Brewfather update interval cannot be less than 15min; using 900s")
@@ -194,8 +194,7 @@ class BrewFather (threading.Thread):
 
         except:
             self.bUpdate = False
-            logger.warning("Problem read from configuration file: "+configFile+". Updating BrewFather.app is disabled until configuration fixed. \
-                It could take a minute for updated values in config file to be used.")
+            logger.warning("Problem read from configuration file: "+CONFIGFILE+". Updating BrewFather.app is disabled until configuration fixed. It could take a minute for updated values in config file to be used.")
             print("[BrewFather]\nUpdate = "+str(self.bUpdate)+"\nUpdateURL = "+self.sURL+"\nUpdateIntervalSeconds = "+str(self.interval))
             
         logger.debug("BrewFather config:\n[BrewFather]\nUpdate = "+str(self.bUpdate)+"\nUpdateURL = "+self.sURL+"\nUpdateIntervalSeconds = "+str(self.interval))

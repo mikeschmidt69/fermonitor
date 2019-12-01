@@ -1,10 +1,23 @@
 /********************************************************************/
-// First we include the libraries
+// Sketch to read temperature from 3 wired temperature sensors (beer, fridge and internal controller temp).
+// Based on the temperature readings and outside control from a host the sketch can turn on/off electrical relays.
+// Relays are meant to be connected to a heating source and cooling source. When the related heating/cooling
+// relays are closed a corresponding colored LED (BLUE-cooling; RED-heating) is illuminated. The sktech also
+// supports and I2C LCD 2x16 screen for displaying the temperatures and state of heating or coolinging.
+// Lastly, to control power consumption and internal heat the LCD is only on for short period of time which is
+// triggered by a motion sensor. 
+//
+// The sketch has default values and can function independently with the exception of controlling the electrical
+// relays. The sketch is controlled over a serial (USB) interface with single character commands (documented later
+// in sketch. The sktech then reports the status to a connected host over the same serial interface.
+/********************************************************************/
+// Included the libraries
 #include <OneWire.h> 
 #include <DallasTemperature.h>
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 
+// Defines; could move these to const and methods later
 #define SECS_PER_MIN  (60UL)
 #define MILLIS_PER_SEC  (1000UL)
 #define numberOfSeconds(_time_) ((_time_ / MILLIS_PER_SEC) % SECS_PER_MIN)  
@@ -29,8 +42,8 @@ const int INTERNAL_TEMP = A6; // Assigning analog pin A5 to variable 'sensor'
 const int SAFE_INTERNAL_TEMP = 60; // safe internal operating temperature
 const int DISPLAY_ON_SECONDS = 60; // number of seconds display stays on due to motion sensor
 const int SCREEN_ON_SECONDS = 3; // number of seconds each display screen of data is shown
-const int SERIAL_UPDATE_RATE_SECONDS = 5;
-const int NUM_TEMP_AVG = 10;
+const int SERIAL_UPDATE_RATE_SECONDS = 5; // rate in seconds the sketch sends out data
+const int NUM_TEMP_AVG = 10;  // number of temperature readings to average 
 
 /********************************************************************/
 // global variables
@@ -38,16 +51,16 @@ bool bHeat = false; // inidcates if system should heat
 bool bCool = false; // indicates if system should cool
 bool bHeatOn = false; // indicates if system is heating
 bool bCoolOn = false; // indicates if system is cooling
-bool bDebug = false; // indicates if extra output should be sent to serial (E.g., echoing recieved requests)
+bool bDebug = false; // indicates if extra output should be sent to serial interface (?:xxxx)
 
-unsigned long minHeatOff = 0; // when heating was turned off, minutes since Arduino was started defaults to delay so heat can be immediately turned on
-unsigned long minCoolOff = 0; // when cooling was turned off, minutes since Arduino was started defaults to delay so cooling can be immediately turned on
-unsigned long minHeatOn = 0; // when heating was turned on, minutes since Arduino was started
-unsigned long minCoolOn = 0; // when cooling was turned on, minutes since Arduino was started
+unsigned long minHeatOff = 0UL; // when heating was turned off, minutes since Arduino was started defaults to delay so heat can be immediately turned on
+unsigned long minCoolOff = 0UL; // when cooling was turned off, minutes since Arduino was started defaults to delay so cooling can be immediately turned on
+unsigned long minHeatOn = 0UL; // when heating was turned on, minutes since Arduino was started
+unsigned long minCoolOn = 0UL; // when cooling was turned on, minutes since Arduino was started
 
-unsigned long secDisplayOn = 0; // when display was turned on
-unsigned long secLastSerialUpdate = 0; // last time serial was updated
-unsigned long secLastLcdUpdate = 0; // last time scrren was updated
+unsigned long secDisplayOn = 0UL; // when display was turned on
+unsigned long secLastSerialUpdate = 0UL; // last time serial was updated
+unsigned long secLastLcdUpdate = 0UL; // last time scrren was updated
 
 float fInternalTemp[NUM_TEMP_AVG]; // internal temperature in C
 float fBeerTemp[NUM_TEMP_AVG]; // beer temperature in C
@@ -91,10 +104,10 @@ void setup() {
   // Start up the library 
   sensors.begin(); 
 
-  minHeatOff = numberOfMinutes(millis()) - onDelay;
-  minCoolOff = numberOfMinutes(millis()) - onDelay;
-  secLastLcdUpdate = numberOfSeconds(millis());
-  secLastSerialUpdate = numberOfSeconds(millis()) - SERIAL_UPDATE_RATE_SECONDS;
+//  minHeatOff = numberOfMinutes(millis()) - onDelay;
+//  minCoolOff = numberOfMinutes(millis()) - onDelay;
+//  secLastLcdUpdate = numberOfSeconds(millis());
+//  secLastSerialUpdate = numberOfSeconds(millis()) - SERIAL_UPDATE_RATE_SECONDS;
 }
 
 // loops through reading the sensor and reports data to user through serial connection
@@ -111,7 +124,7 @@ void loop() {
 
   float fTemp = 0.0f;
   
-  // read temperatures
+  // read temperatures and place to array for averaging
   
   fTemp = analogRead(INTERNAL_TEMP);
   fInternalTemp[iTempNum] = fTemp * 0.48828125;
@@ -181,6 +194,7 @@ void handleHeatingCooling() {
       digitalWrite (HEAT_RELAY,HIGH);
       digitalWrite (HEAT_LED,HIGH);
       bHeatOn = true;
+      bCool = false;
       minHeatOn = curTimeMin;
     }
   }
@@ -200,6 +214,7 @@ void handleHeatingCooling() {
       digitalWrite (COOL_RELAY,HIGH);
       digitalWrite (COOL_LED,HIGH);
       bCoolOn = true;
+      bHeat = false;
       minCoolOn = curTimeMin;
     }
   }
@@ -224,21 +239,24 @@ void handleHeatingCooling() {
 // O:# Neither heating or cooling is ON
 // ?:aaa Debugging information
 void outputSerial() {
-  unsigned long coolOffDuration = 0; // used to calculate how much longer before on delay has expired
-  unsigned long heatOffDuration = 0; // used to calculate how much longer before on delay has expired
-
   unsigned long curTime = numberOfMinutes(millis());
 
-  if(bDebug) {
-    Serial.println("?:Time/"+String(curTime)+"min");
+  if (bDebug){
+    Serial.println("?:+");        
   }
-  
+  else {
+    Serial.println("?:-");        
+  }
   Serial.println("D:"+String(onDelay));
 
   Serial.println("I:"+String(getTemp(fInternalTemp),1));
   Serial.println("B:"+String(getTemp(fBeerTemp),1));
   Serial.println("F:"+String(getTemp(fFridgeTemp),1));
 
+  if(bDebug) {
+    Serial.println("?:Time/"+String(curTime)+"min");
+  }
+  
   if (bHeat) {
     if (bHeatOn) {
       Serial.println("H:"+String(curTime - minHeatOn));
@@ -248,7 +266,7 @@ void outputSerial() {
       }    
     }
     else {
-      heatOffDuration = curTime - minHeatOff;
+      unsigned long heatOffDuration = curTime - minHeatOff;
 
       Serial.println("h:"+String(onDelay - heatOffDuration));
       if(bDebug) {
@@ -264,7 +282,7 @@ void outputSerial() {
       }    
     }
     else {
-      coolOffDuration = curTime - minCoolOff;
+      unsigned long coolOffDuration = curTime - minCoolOff;
       
       Serial.println("c:"+String(onDelay - coolOffDuration));
       if(bDebug) {
@@ -297,9 +315,6 @@ void outputSerial() {
 // C:# Cooling has been on for # milliseconds
 // O:# Neither heating or cooling is ON
 void updateLCD() {
-  unsigned long coolOffDuration = 0; // used to calculate how much longer before on delay has expired
-  unsigned long heatOffDuration = 0; // used to calculate how much longer before on delay has expired
-
   unsigned long curTime = numberOfMinutes(millis());
   unsigned long curTimeSec = numberOfSeconds(millis());
 
@@ -313,6 +328,7 @@ void updateLCD() {
   }
 
   String sTemp = "";
+  
   if (iLCD_Screen == 0) {
     sTemp = "I:"+String(getTemp(fInternalTemp),1)+"C";
   }
@@ -323,52 +339,40 @@ void updateLCD() {
     sTemp = "F:" + String(getTemp(fFridgeTemp),1)+"C";    
   }
 
-
   String sFridgeState = "";
 
-  if (bHeat and !bHeatOn) {
-    
-    // need to check ok with delay
-    if (minHeatOff == 0) {
-      heatOffDuration = onDelay;
+  if (bHeat) {
+    if (bHeatOn) {
+      sFridgeState = "H:" + String(curTime - minHeatOn) + "min";
     }
     else {
-      heatOffDuration = curTime - minHeatOff;
+      long heatOffDuration = curTime - minHeatOff;
+      sFridgeState = "h:" + String(onDelay - heatOffDuration) + "min";
     }
-    
-    if (heatOffDuration < onDelay) {
-      sFridgeState = "h:" + String(onDelay-heatOffDuration)+"min";
-    }
-  }
-  else if (bHeat and bHeatOn) {
-    sFridgeState = "H:" + String(curTime - minHeatOn)+"min";
-  }
-  
-  if(bCool and !bCoolOn) {
-    // need to check ok with delay
-    
-    if (minCoolOff == 0) {
-      coolOffDuration = onDelay;
+  }  
+  else if (bCool) {
+    if (bCoolOn) {
+      sFridgeState = "C:" + String(curTime - minCoolOn) + "min";
     }
     else {
-      coolOffDuration = curTime - minCoolOff;
-    }
-    
-    if (coolOffDuration < onDelay) {
-      sFridgeState = "c:" + String(onDelay-coolOffDuration)+"min";
+      long coolOffDuration = curTime - minCoolOff;
+      sFridgeState = "c:" + String(onDelay - coolOffDuration) + "min";
     }
   }
-  else if (bCool and bCoolOn) {
-    sFridgeState = "C:" + String(curTime - minCoolOn)+"min";
-  }
-
-  if ((!bHeatOn and !bHeat) and (!bCoolOn and !bCool)) {
-    sFridgeState = "O:";
-    if ( (curTime-minCoolOff) < (curTime-minHeatOff) ) {
-      sFridgeState = sFridgeState + String(curTime - minCoolOff)+"min";
+  else {
+    if (!bHeatOn and !bCoolOn) {
+      if ((curTime-minCoolOff) < (curTime-minHeatOff)) {
+        sFridgeState = "O:" + String(curTime - minCoolOff) + "min";
+      }
+      else {
+        sFridgeState = "O:" + String(curTime - minHeatOff) + "min";
+      }
+    }
+    else if (bHeatOn) {
+      sFridgeState = "H: should be OFF"; 
     }
     else {
-      sFridgeState = sFridgeState + String(curTime - minHeatOff)+"min";
+      sFridgeState = "C: should be OFF";       
     }
   }
 
@@ -384,7 +388,6 @@ void updateLCD() {
   else {
     lcd.print(sFridgeState);  
   }
-
 }
 
 // read commands from (USB) serial connection and set appropriate flag/variables influencing how the system works
@@ -447,9 +450,6 @@ void handleSerial() {
        // user requestesf the delay for turning on a device after turning off to be increased by 1 minute
       case '+':
         onDelay += 1;
-        if (bDebug) {
-          Serial.println("D:"+String(onDelay));
-        }
         break;
 
       // user requestesf the delay for turning on a device after turning off to be decreased by 1 minute
@@ -457,25 +457,11 @@ void handleSerial() {
         if (onDelay >= 1){
           onDelay -= 1;
         }
-        if (bDebug) {
-          Serial.println("D:"+String(onDelay));
-        }
         break;
         
-      // user requested current delay for turning on a device (heating or cooling) once it has been turned off
-      case '=':               
-          Serial.println("D:"+String(onDelay));
-        break;
-
       // turn on/off verbose messages
       case '?':  
         bDebug = !bDebug;             
-        if (bDebug){
-          Serial.println("?:+");        
-        }
-        else {
-          Serial.println("?:-");        
-        }
         break;
     }
   }

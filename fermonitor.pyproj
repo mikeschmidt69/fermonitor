@@ -25,13 +25,13 @@
     <Compile Include="brewfather.py" />
     <Compile Include="chamber.py" />
     <Compile Include="controller.py" />
-    <Compile Include="fermonitor.py" />
+    <Compile Include="test_interface.py" />
     <Compile Include="settings.py" />
     <Compile Include="setup_logger.py" />
     <Compile Include="tilt.py" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="fermonitor.ini" />
+    <Content Include="brewfather.ini" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
   <!-- Uncomment the CoreCompile target to enable the Build command in

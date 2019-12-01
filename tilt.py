@@ -24,15 +24,14 @@
 # https://www.instructables.com/id/Reading-a-Tilt-Hydrometer-With-a-Raspberry-Pi/
 
 import blescan
-import sys
 import datetime
 import time
-import bluetooth._bluetooth as bluez
 import os
+import bluetooth._bluetooth as bluez
 import threading
 import logging
-from setup_logger import logger
 import configparser
+from setup_logger import logger
 from distutils.util import strtobool
 
 logger = logging.getLogger('TILT')
@@ -47,7 +46,9 @@ BLUE = "BLUE"
 YELLOW = "YELLOW"
 PINK = "PINK"
 
-MINIMUM_INVERVAL = 10
+DEFAULT_BT_DEVICE_ID = 0
+MINIMUM_INTERVAL = 10
+CONFIGFILE = "tilt.ini"
 
 def validColor(color):
     if color in {RED,GREEN,BLACK,PURPLE,ORANGE,BLUE,YELLOW,PINK}:
@@ -80,26 +81,18 @@ class Tilt (threading.Thread):
     # UpdateIntervalSeconds = 60
     # BluetoothDeviceId = 0
     #
-    def __init__(self, configFile, color):
+    def __init__(self, _color):
         threading.Thread.__init__(self)
     
-        self.initialized = False
-
-        if os.path.isfile(configFile) == False:
-            raise IOError("Tilt configuration file is not valid: "+configFile)
-
         self.color = BLACK # color of tilt that is being used
 
-        if validColor(color):
-            self.color = color
+        if validColor(_color):
+            self.color = _color
         else:
             raise Exception("Invalid Tilt color: "+color) 
 
-        self.configFile = configFile
-        self.bluetoothDeviceId = 0
-        self.interval = MINIMUM_INVERVAL # interval in seconds the tilt should be read
-
-        self._readConf(self.configFile)
+        self.bluetoothDeviceId = DEFAULT_BT_DEVICE_ID
+        self.interval = MINIMUM_INTERVAL
 
         self.lastUpdateTime = datetime.datetime.now()  - datetime.timedelta(seconds=self.interval) # last time the tilt was read
      
@@ -107,8 +100,7 @@ class Tilt (threading.Thread):
         self.temp = -273.15 # last read temperature from tilt
         self.sg = 0.0 # last read specific gravity from tilt
         self.stopThread = True
-
-        self.initialized = True
+        self._readConf()
 
 
     # Starts background thread that updates the data from Tilt hydrometer (temp, specific gravity) on regular basis.
@@ -117,9 +109,8 @@ class Tilt (threading.Thread):
         logger.info("Starting Tilt Monitoring: "+self.color)
         self.stopThread = False
         while self.stopThread != True:
-            self._readConf(self.configFile)
             self._update()    # calls method that updates data from Tilt if update time interval has lapsed
-            time.sleep(MINIMUM_INVERVAL)
+            time.sleep(MINIMUM_INTERVAL)
         logger.info("Tilt Monitoring:"+self.color+" Stopped.")
 
 
@@ -149,79 +140,15 @@ class Tilt (threading.Thread):
 
 
     # sets interval that data is read from Tilt hydrometer
-    def setInterval(self, interval):
-        self.interval = interval
+    def setInterval(self, _interval):
+        if _interval > MINIMUM_INTERVAL:
+            self.interval = _interval
 
 
     # stops the background thread updating data coming from configured Tilt
     def stop(self):
         self.stopThread = True
-
-
-    def _readConf(self,configFile):
-    
-        bDefaultInterval = True
-        bDefaultBtDeviceId = True
-        
-        if os.path.isfile(configFile) == False:
-            logger.error("Tilt configuration file is not valid: "+configFile)
-        else:
-            ini = configparser.ConfigParser()
-            try:
-                logger.debug("Reading Tilt config: " + configFile)
-                ini.read(configFile)
-
-                if self.color in ini:
-                    config = ini[self.color]
-
-                    try:
-                        if config["UpdateIntervalSeconds"] != "" and int(config["UpdateIntervalSeconds"]) >= MINIMUM_INVERVAL:
-                            self.interval = int(config.get("UpdateIntervalSeconds"))
-                            bDefaultInterval = False
-                        else:
-                            self.interval = MINIMUM_INVERVAL
-                    except KeyError:
-                        pass
-
-                    try:
-                        if config["BluetoothDeviceId"] != "" and int(config["BluetoothDeviceId"]) >= 0:
-                            self.bluetoothDeviceId = int(config.get("BluetoothDeviceId"))
-                            bDefaultBtDeviceId = False
-                        else:
-                            self.bluetoothDeviceId = 0
-                    except KeyError:
-                        pass
-
-                    try:
-                        if config["MessageLevel"] == "DEBUG":
-                            logger.setLevel(logging.DEBUG)
-                        elif config["MessageLevel"] == "WARNING":
-                            logger.setLevel(logging.WARNING)
-                        elif config["MessageLevel"] == "ERROR":
-                            logger.setLevel(logging.ERROR)
-                        elif config["MessageLevel"] == "INFO":
-                            logger.setLevel(logging.INFO)
-                        else:
-                            logger.setLevel(logging.INFO)
-                    except KeyError:
-                        logger.setLevel(logging.INFO)
-                else:
-                    logger.error("["+self.color+"] section not found in ini file: " + configFile)
-            except:
-                pass
-    
-        if bDefaultInterval or bDefaultBtDeviceId:
-            logger.warning("Problem read from configuration file: \""+configFile+ \
-                "\". Using some default values[**] for Tilt configuration. It could take a minute for updated values in config file to be used.")
-            sConf = "Color = "+self.color
-            sConf = sConf + "\nUpdateIntervalSeconds = "+str(self.interval)
-            if bDefaultInterval:
-                sConf = sConf + "**"
-            sConf = sConf + "\nBluetoothDeviceId = "+str(self.bluetoothDeviceId)
-            if bDefaultBtDeviceId:
-                sConf = sConf + "**"
-            print(sConf)
-            
+   
  
     # Internal method for checking if the update time interval has lapsed and new data should be read from Tilt
     def _update(self):
@@ -285,9 +212,76 @@ class Tilt (threading.Thread):
 
             curTime = datetime.datetime.now()
 
+        # Did not collect data before timeout; set data as invalid
         if gotData == 0:
+            self.validData = False;
             logger.debug("Timed out collecting data from Tilt")
 
         blescan.hci_disable_le_scan(sock)
         return True
+
+
+    def _readConf(self):
+    
+        bDefaultInterval = True
+        bDefaultBtDeviceId = True
+        
+        if os.path.isfile(CONFIGFILE) == False:
+            logger.error("Tilt configuration file is not valid: "+CONFIGFILE)
+        else:
+            ini = configparser.ConfigParser()
+            try:
+                logger.debug("Reading Tilt config: " + CONFIGFILE)
+                ini.read(CONFIGFILE)
+
+                if self.color in ini:
+                    config = ini[self.color]
+
+                    try:
+                        if config["UpdateIntervalSeconds"] != "" and int(config["UpdateIntervalSeconds"]) >= MINIMUM_INTERVAL:
+                            self.interval = int(config.get("UpdateIntervalSeconds"))
+                            bDefaultInterval = False
+                        else:
+                            self.interval = MINIMUM_INTERVAL
+                    except KeyError:
+                        pass
+
+                    try:
+                        if config["BluetoothDeviceId"] != "" and int(config["BluetoothDeviceId"]) >= 0:
+                            self.bluetoothDeviceId = int(config.get("BluetoothDeviceId"))
+                            bDefaultBtDeviceId = False
+                        else:
+                            self.bluetoothDeviceId = 0
+                    except KeyError:
+                        pass
+
+                    try:
+                        if config["MessageLevel"] == "DEBUG":
+                            logger.setLevel(logging.DEBUG)
+                        elif config["MessageLevel"] == "WARNING":
+                            logger.setLevel(logging.WARNING)
+                        elif config["MessageLevel"] == "ERROR":
+                            logger.setLevel(logging.ERROR)
+                        elif config["MessageLevel"] == "INFO":
+                            logger.setLevel(logging.INFO)
+                        else:
+                            logger.setLevel(logging.INFO)
+                    except KeyError:
+                        logger.setLevel(logging.INFO)
+                else:
+                    logger.error("["+self.color+"] section not found in ini file: " + CONFIGFILE)
+            except:
+                pass
+    
+        if bDefaultInterval or bDefaultBtDeviceId:
+            logger.warning("Problem read from configuration file: \""+CONFIGFILE+ \
+                "\". Using some default values[**] for Tilt configuration. It could take a minute for updated values in config file to be used.")
+            sConf = "Color = "+self.color
+            sConf = sConf + "\nUpdateIntervalSeconds = "+str(self.interval)
+            if bDefaultInterval:
+                sConf = sConf + "**"
+            sConf = sConf + "\nBluetoothDeviceId = "+str(self.bluetoothDeviceId)
+            if bDefaultBtDeviceId:
+                sConf = sConf + "**"
+            print(sConf)
 
