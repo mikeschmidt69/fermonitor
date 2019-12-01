@@ -131,7 +131,7 @@ class BrewFather (threading.Thread):
     # Format:
     # [BrewFather]
     # Update = False
-    # UpdateURL = http://log.brewfather.net/stream?id=CdetYZYm9XNP1R
+    # UpdateURL = http://log.brewfather.net/stream?id=xxxxxxxx
     # UpdateIntervalSeconds = 1800
     def _readConf(self, configFile):
 
