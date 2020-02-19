@@ -11,6 +11,7 @@
     <OutputPath>.</OutputPath>
     <Name>fermonitor</Name>
     <RootNamespace>fermonitor</RootNamespace>
+    <SuppressConfigureTestFrameworkPrompt>true</SuppressConfigureTestFrameworkPrompt>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
