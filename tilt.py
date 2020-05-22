@@ -206,8 +206,8 @@ class Tilt (threading.Thread):
                     else:
                         self.temp = foundTemp
                         self.sg = foundSG
-                        self.validData = True
                         self.lastUpdateTime = datetime.datetime.now()
+                        self.validData = True
                         logger.info(self.color+" - "+self.lastUpdateTime.strftime("%d.%m.%Y %H:%M:%S")+" - T:"+str(round(float(self.temp),1))+" - SG:"+"{:5.3f}".format(round(float(self.sg),3)))
 
             curTime = datetime.datetime.now()
