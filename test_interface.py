@@ -56,7 +56,7 @@ def main():
         if random.randint(1,3) > 1:
             WchamberT = -WchamberT
 
-        ui.setData(TbeerT,Tsg, WchamberT)
+        ui.setData(21, TbeerT, Tsg, TbeerT*1.3, WchamberT)
         time.sleep(1)
 
     ui.stop()

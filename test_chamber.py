@@ -28,35 +28,20 @@ import logging
 from setup_logger import logger
 from distutils.util import strtobool
 
-import controller
 import chamber
 
 logger = logging.getLogger('TEST_CHAMBER')
 logger.setLevel(logging.INFO)
 
-control = controller.Controller()
-fridge = chamber.Chamber(control, None)
+fridge = chamber.Chamber(None)
 
 ################################################################
 def main():
     
-    control.setLogLevel(logging.DEBUG)      
-    fridge.setLogLevel(logging.DEBUG)      
-
-    control.setDelay(30)
-    control.start()
-
-    curTime = datetime.datetime.now()
-
-    dates = [curTime + datetime.timedelta(seconds=10), curTime + datetime.timedelta(seconds=20), curTime + datetime.timedelta(seconds=40), curTime + datetime.timedelta(seconds=70), curTime + datetime.timedelta(seconds=100)]
-    temps = [100,1,50,5]
-
-    fridge.setControlTemps(temps, dates, 1, 5)
     fridge.start()
 
-    time.sleep(120)
+    time.sleep(240)
 
-    control.stop()
     fridge.stop()
 
 
@@ -66,7 +51,6 @@ if __name__ == "__main__": #dont run this as a module
         main()
 
     except KeyboardInterrupt:
-        control = None
         fridge = None
         print("...Chamber Test Stopped")
  

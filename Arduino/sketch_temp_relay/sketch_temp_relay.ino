@@ -33,7 +33,6 @@ const int INTERNAL_TEMP = A6; // Assigning analog pin A5 to variable 'sensor'
 const int SAFE_INTERNAL_TEMP = 60; // safe internal operating temperature
 const int NUM_TEMP_AVG = 10;  // number of temperature readings to average 
 const unsigned long WD_TIME = (60UL); // watchdog interval 10min
-
 /********************************************************************/
 // global variables
 bool bHeat = false; // inidcates if system should heat
@@ -73,6 +72,7 @@ void setup() {
     
   // Start up the library 
   sensors.begin(); 
+  delay(5000);
 }
 
 // loops through reading the sensor and reports data to user through serial connection
@@ -88,12 +88,12 @@ void loop() {
 
   sensors.requestTemperatures(); // Send the command to get temperature readings
   fTemp = sensors.getTempCByIndex(0);
-  if (fTemp > -100 and fTemp < 100) {
+  if (fTemp > -55 and fTemp < 125) {
     fBeerTemp[iTempNum] = fTemp;
   }
   
   fTemp = sensors.getTempCByIndex(1);
-  if (fTemp > -100 and fTemp < 100) {
+  if (fTemp > -55 and fTemp < 125) {
     fFridgeTemp[iTempNum] = fTemp;
   }
   iTempNum += 1;
@@ -111,12 +111,12 @@ void loop() {
     bSafe = true;
   }
 
-  // read and process commands from serial interface a
+  // read and process commands from serial interface a§§§§§§§§§§§§§§§§§§11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111                                                                                                                                                                                                                                                                                                                         
   handleSerial();
 
   // turn on in-build LED to show operation is bing done
   digitalWrite (ARDUINO_LED,HIGH); // Turn ON the LED on pin 13
-  delay (10); //Wait for so internal LED is off a short pause
+  delay (90); //Wait for so internal LED is off a short pause
   digitalWrite (ARDUINO_LED, LOW); //Turn OFF the in-build LED
 }
 

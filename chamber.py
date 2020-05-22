@@ -33,6 +33,7 @@ logger = logging.getLogger('CHAMBER')
 logger.setLevel(logging.INFO)
 
 UPDATE_INVERVAL = 1 # update interval in seconds
+PAUSE_DELAY = 60 # number of seconds to delay when system is paused before continuing
 CONFIGFILE = "chamber.ini"
 
 DEFAULT_TEMP = -999
@@ -58,7 +59,7 @@ class Chamber(threading.Thread):
         self.chamberTemp = DEFAULT_TEMP
         self.beerSG = DEFAULT_SG
         self.timeData = datetime.datetime.now()
-
+        self.paused = False
         self.control.start()
 
 
@@ -91,20 +92,32 @@ class Chamber(threading.Thread):
         # use wired data initially
         if self.control.isDataValid():
             self.beerTemp = self.control.getBeerTemp()
-            self.timeData = self.control.timeOfData()
             self.beerWireTemp = self.control.getBeerTemp()
             self.chamberTemp = self.control.getChamberTemp()
+            self.timeData = self.control.timeOfData()
+        else:
+            self.beerTemp = DEFAULT_TEMP
+            self.beerWireTemp = DEFAULT_TEMP
+            self.chamberTemp = DEFAULT_TEMP
 
-        # if Tilt is configured and available replace related values
-        if (self.tilt is not None and self.tilt.isDataValid()):
-            self.beerTemp = self.tilt.getTemp()
-            self.beerSG = self.tilt.getGravity()
-            self.timeData = self.tilt.timeOfData()
-        
-        # beer temp has not been read yet so cannot properly control chamber
-        if self.beerTemp == DEFAULT_TEMP:
+            self.control.stopHeatingCooling()
+            logger.error("Chamber paused (60s), heating and cooling stopped: controller data is invalid")
+            self.paused = True
+            time.sleep(PAUSE_DELAY)
             return
 
+        # if Tilt is configured and available replace related values
+        if (self.tilt is not None):
+            if self.tilt.isDataValid():
+                self.beerTemp = self.tilt.getTemp()
+                self.beerSG = self.tilt.getGravity()
+                self.timeData = self.tilt.timeOfData()
+            else:
+                self.beerSG = DEFAULT_SG
+                logger.error("Data from tilt unavailable, checking again in 60s: using wired temperatures")
+                time.sleep(PAUSE_DELAY)
+
+        self.paused = False
         _curTime = datetime.datetime.now()
             
         # check which of the temperature change dates have passed
@@ -189,9 +202,15 @@ class Chamber(threading.Thread):
         else:
             return self.chamberTemp
 
+    def setTilt(self, _tilt):
+        self.tilt = _tilt
+
     # returns time when data was updated
     def timeOfData(self):
         return self.timeData
+
+    def paused(self):
+        return self.paused
 
     # Read class parameters from configuration ini file.
     # Format:

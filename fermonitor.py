@@ -35,78 +35,13 @@ import tilt
 import brewfather
 
 logger = logging.getLogger('FERMONITOR')
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 CONFIGFILE = "fermonitor.ini"
 
 CONTROL_TILT = 0
 CONTROL_WIRE = 1
 
-################################################################
-def main():
-    
-    logger.info("Starting Fermonitor...")
-
-    cInterface = interface.Interface("Fermonitor......")
-
-    read_settings()
-
-    cInterface.setLogLevel(settings.logLevel)
-    cInterface.start()
-
-    cChamber = None
-    cTilt = None
-        
-    # Start Tilt thread to read temp and gravity if tilt configuration file is specified
-    if settings.bUseTilt:
-        logger.debug("Starting Tilt Thread")
-        cTilt = tilt.Tilt(settings.sTiltColor)
-        cTilt.start()
-        time.sleep(10)
-        if settings.chamberControlTemp == settings.CONTROL_TILT:
-            cChamber = chamber.Chamber(cTilt)
-
-    if cChamber == None:
-        cChamber = chamber.Chamber(None)
-    
-    cChamber.start()
-
-    # Start BrewFather thread to store temp and gravity
-    logger.debug("Starting BrewFather Thread")
-    cBrewfather = brewfather.BrewFather()
-    cBrewfather.start()
-    
-    gravity = None
-    tempBeer = None
-    tempChamber = None
-    timeBeer = None
-
-
-    # Main loop for reading and logging data as well as controllng fermentor
-    while True:
-
-        target = cChamber.getTargetTemp()
-        tempBeer = cChamber.getBeerTemp()
-        gravity = cChamber.getBeerSG()
-        tempBeerWireTemp = cChamber.getWireBeerTemp()
-        tempChamber = cChamber.getChamberTemp()
-        timeBeer = cChamber.timeOfData()
-
-        cBrewfather.setData(tempBeer, tempChamber, gravity, timeBeer)        
-
-        cInterface.setData( target, tempBeer, gravity, tempBeerWireTemp, tempChamber)
-
-        time.sleep(1)
-
-
-if __name__ == "__main__": #dont run this as a module
-
-    try:
-        main()
-
-    except KeyboardInterrupt:
-        print("...Fermonitor Stopped")
- 
 def read_settings():
     global sTiltColor
     global chamberControlTemp
@@ -134,22 +69,40 @@ def read_settings():
         raise IOError("[Fermonitor] section not found in fermonitor.ini")
 
     try:
+        if config["MessageLevel"] == "DEBUG":
+            logLevel = logging.DEBUG
+        elif config["MessageLevel"] == "WARNING":
+            logLevel = logging.WARNING
+        elif config["MessageLevel"] == "ERROR":
+            logLevel = logging.ERROR
+        elif config["MessageLevel"] == "INFO":
+            logLevel = logging.INFO
+        else:
+            logLevel = logging.INFO
+    except KeyError:
+        logLevel = logging.INFO
+
+    logger.setLevel(logLevel)   
+
+    try:
         if config["TiltColor"] != "":
             sTiltColor = config.get("TiltColor")
-            bUseTilt = True
         else:
             raise Exception
     except:
-        bUseTilt = False
         logger.warning("No color specified for Tilt. Tilt not used.")
         sTiltColor = ""
+
+    logger.debug("Tilt color: "+ sTiltColor)    
 
     try:
         if config["ChamberControl"] != "":
             if config.get("ChamberControl") == "WIRE":
                 chamberControlTemp = CONTROL_WIRE
+                logger.debug("Chamber control temperature based on WIRE")    
             elif config.get("ChamberControl") == "TILT":
                 chamberControlTemp = CONTROL_TILT
+                logger.debug("Chamber control temperature based on TILT")    
             else:
                 chamberControlTemp = CONTROL_WIRE
                 logger.warning("Invalid ChamberControl configuration; using default: WIRE")
@@ -176,8 +129,83 @@ def read_settings():
 
     logger.setLevel(logLevel)   
 
-    st = "sTiltColor: " + sTiltColor + "\n"
-    st = st + "bUseTilt: " + str(bUseTilt) + "\n"
-    
-    logger.debug("Result of reading fermonitor.ini:\n"+st)    
+    logger.debug("Completed reading settings")    
     return
+
+################################################################
+def main():
+    
+    logger.info("Starting Fermonitor...")
+
+    read_settings()
+
+    cInterface = interface.Interface("Fermonitor......")
+    cInterface.setLogLevel(logLevel)
+    cInterface.start()
+
+    cChamber = chamber.Chamber(None)
+    cChamber.start()
+
+    cTilt = None
+
+    gravity = None
+    tempBeer = None
+    tempChamber = None
+    timeBeer = None
+
+    # Start BrewFather thread to store temp and gravity
+    logger.debug("Starting BrewFather Thread")
+    cBrewfather = brewfather.BrewFather()
+    cBrewfather.start()
+
+    # Main loop for reading and logging data as well as controllng fermentor
+    while True:
+
+        read_settings()
+        cInterface.setLogLevel(logLevel)
+
+        # Handle Tilt
+        
+        if sTiltColor != "":
+            if (cTilt is not None) and (cTilt.getColor() != sTiltColor):
+                logger.debug("Tilt color changed: stopping Tilt: " + cTilt.getColor())
+                cTilt = None
+
+            if cTilt is None:
+                logger.debug("Starting Tilt monitoring: " + sTiltColor)
+                cTilt = tilt.Tilt(sTiltColor)
+                cTilt.start()
+                time.sleep(10)
+
+        else:
+            cTilt = None
+
+        if chamberControlTemp == CONTROL_TILT:
+            cChamber.setTilt(cTilt)
+        else:
+            cChamber.setTilt(None)
+
+        if not cChamber.paused:
+            target = cChamber.getTargetTemp()
+            tempBeer = cChamber.getBeerTemp()
+            tempBeerWireTemp = cChamber.getWireBeerTemp()
+            tempChamber = cChamber.getChamberTemp()
+            timeBeer = cChamber.timeOfData()
+            if cTilt is not None and cTilt.isDataValid():
+                gravity = cTilt.getGravity()
+
+            cBrewfather.setData(tempBeer, tempChamber, gravity, timeBeer)        
+
+            cInterface.setData( target, tempBeer, gravity, tempBeerWireTemp, tempChamber)
+
+        time.sleep(1)
+
+
+if __name__ == "__main__": #dont run this as a module
+
+    try:
+        main()
+
+    except KeyboardInterrupt:
+        print("...Fermonitor Stopped")
+ 

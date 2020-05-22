@@ -210,7 +210,11 @@ class Controller (threading.Thread):
 
     # tells if data is valid
     def isDataValid(self):
+        # if any of the expected values are still default then data is not valide
         if self.beerTemp == DEFAULT_TEMP or self.chamberTemp == DEFAULT_TEMP or self.internalTemp == DEFAULT_TEMP:
+            return False
+        # if data has not been updated then communication is broken with Arduino
+        elif datetime.datetime.now() > self.lastUpdateTime + datetime.timedelta(seconds=UPDATE_INVERVAL*10):
             return False
         else:
             return True

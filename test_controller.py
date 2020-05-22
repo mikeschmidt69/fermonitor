@@ -38,53 +38,50 @@ control = controller.Controller()
 ################################################################
 def main():
     
-    control.setLogLevel(logging.DEBUG)      
-    control.setDelay(20)
-
     control.start()
 
     time.sleep(5)
 
     print("1 HEATING---------------------------------------------------------------------")
-    control.startHeating()
 
     while (not control.isHeating()):
+        control.startHeating()
         time.sleep(1)
 
     print("2 COOLING---------------------------------------------------------------------")
-    control.startCooling()
 
     while (not control.isCooling()):
+        control.startCooling()
         time.sleep(1)
 
     print("3 STOP---------------------------------------------------------------------")
-    control.stopHeatingCooling()
 
     while (control.isCooling() or control.isHeating()):
+        control.stopHeatingCooling()
         time.sleep(1)
 
     print("4 DELAY COOLING---------------------------------------------------------------------")
-    control.startCooling()
 
     while (not control.isCooling()):
+        control.startCooling()
         time.sleep(1)
 
     print("5 HEATING---------------------------------------------------------------------")
-    control.startHeating()
 
     while (not control.isHeating()):
+        control.startHeating()
         time.sleep(1)
 
     print("6 STOP---------------------------------------------------------------------")
-    control.stopHeatingCooling()
 
     while (control.isCooling() or control.isHeating()):
+        control.stopHeatingCooling()
         time.sleep(1)
 
     print("7 DELAY HEATING---------------------------------------------------------------------")
-    control.startHeating()
 
     while (not control.isHeating()):
+        control.startHeating()
         time.sleep(1)
 
     print("8 END---------------------------------------------------------------------")

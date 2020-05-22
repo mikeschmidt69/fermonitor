@@ -61,6 +61,7 @@ class Interface (threading.Thread):
         self.sScreen3Row2 = "Chamber:        "
         self.lcdOffTime = datetime.datetime.now() 
         self.displaySwitchTime = datetime.datetime.now() + datetime.timedelta(seconds=DISPLAY_ON_SEC)
+        self.dataTime = datetime.datetime.now() 
 
         # Initialize the GPIO Pins
         os.system('modprobe w1-gpio') # Turns on the GPIO module
@@ -99,7 +100,12 @@ class Interface (threading.Thread):
         while not self.bStopRequest:
             curTime = datetime.datetime.now()
 
-            # Set which of the 2 displays should be shown
+            # No data has been sent to interface in 15s so clear old data from being shown
+            if curTime > self.dataTime + datetime.timedelta(seconds=15):
+                self.clearScreen()
+                logger.debug("No data sent to interface within 15s, clearing data shown")
+
+            # Set which of the displays should be shown
             if curTime > self.displaySwitchTime:
                 self.iDisplay = self.iDisplay + 1
                 if self.iDisplay > NUM_DISPLAYS:
@@ -189,8 +195,6 @@ class Interface (threading.Thread):
             
             time.sleep(0.5)
 
-
-
     def __del__(self):
         self.lcd.lcd_clear()
         self.lcd.backlight(0)                
@@ -217,21 +221,26 @@ class Interface (threading.Thread):
             logger.setLevel(logging.INFO)
 
     def setData(self, _target, _beerT, _sg, _beerWireT, _chamberT):
+        self.clearScreen()
 
         if _target is not None:
-            self.sScreen1Row2 = None
             self.sScreen1Row2 = " Target:{:5.1f}C  ".format(round(float(_target),1))
         if _sg is not None:
-            self.sScreen2Row1 = None
             self.sScreen2Row1 = "     SG:  {:5.3f} ".format(round(float(_sg),3))
         if _beerT is not None:
-            self.sScreen2Row2 = None
             self.sScreen2Row2 = "   Beer:{:5.1f}C  ".format(round(float(_beerT),1))
         if _beerWireT is not None:
-            self.sScreen3Row1 = None
             self.sScreen3Row1 = "(W)Beer:{:5.1f}C  ".format(round(float(_beerWireT),1))
         if _chamberT is not None:
-            self.sScreen3Row2 = None
             self.sScreen3Row2 = "Chamber:{:5.1f}C  ".format(round(float(_chamberT),1))
 
+        self.dataTime = datetime.datetime.now() 
+
+    def clearScreen(self):
+        # self.sScreen1Row1 shows the welcome message passed to interface class
+        self.sScreen1Row2 = " Target:        "
+        self.sScreen2Row1 = "     SG:        "
+        self.sScreen2Row2 = "   Beer:        "
+        self.sScreen3Row1 = "(W)Beer:        "
+        self.sScreen3Row2 = "Chamber:        "
 
