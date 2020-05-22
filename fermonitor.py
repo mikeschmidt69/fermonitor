@@ -148,11 +148,6 @@ def main():
 
     cTilt = None
 
-    gravity = None
-    tempBeer = None
-    tempChamber = None
-    timeBeer = None
-
     # Start BrewFather thread to store temp and gravity
     logger.debug("Starting BrewFather Thread")
     cBrewfather = brewfather.BrewFather()
@@ -184,6 +179,11 @@ def main():
             cChamber.setTilt(cTilt)
         else:
             cChamber.setTilt(None)
+
+        gravity = None
+        tempBeer = None
+        tempChamber = None
+        timeBeer = None
 
         if not cChamber.paused:
             target = cChamber.getTargetTemp()

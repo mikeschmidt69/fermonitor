@@ -22,5 +22,6 @@
 import logging
 import sys
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(format='%(asctime)s %(levelname)s {%(module)s} [%(funcName)s] %(message)s',datefmt='%Y-%m-%d,%H:%M:%S', level=logging.INFO)
+
 logger = logging.getLogger('fermonitor2')

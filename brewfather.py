@@ -92,12 +92,22 @@ class BrewFather (threading.Thread):
     def setData(self, _beer_temp, _aux_temp, _gravity, _dataTime):
         if _beer_temp != None:
             self.postdata["temp"] = str(round(float(_beer_temp),1))
+        else:
+            self.postdata["temp"] = ""
+
         if _aux_temp != None:
             self.postdata["aux_temp"] = str(round(float(_aux_temp),1))
+        else: 
+            self.postdata["aux_temp"] = ""
+
         if _gravity != None:
             self.postdata["gravity"] = "{:5.3f}".format(round(float(_gravity),3))
+        else:
+            self.postdata["gravity"] = ""
+
         if _dataTime != None and (_beer_temp != None or _aux_temp != None or _gravity != None):
             self.dataTime = _dataTime
+            
 
     # method for connecting and updating BrewFather.app
     def _update(self):
