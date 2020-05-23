@@ -35,7 +35,7 @@ import tilt
 import brewfather
 
 logger = logging.getLogger('FERMONITOR')
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 CONFIGFILE = "fermonitor.ini"
 
@@ -194,7 +194,7 @@ def main():
             if cTilt is not None and cTilt.isDataValid():
                 gravity = cTilt.getGravity()
 
-            cBrewfather.setData(tempBeer, tempChamber, gravity, timeBeer)        
+            cBrewfather.setData(tempBeer, tempChamber, gravity)        
 
             cInterface.setData( target, tempBeer, gravity, tempBeerWireTemp, tempChamber)
 

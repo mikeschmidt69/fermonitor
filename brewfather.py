@@ -51,7 +51,7 @@ class BrewFather (threading.Thread):
         self.sURL = ""                      # custom URL provided in the BrewFather app where data should be sent in JSON format
         self.interval = MINIMUM_INTERVAL    # interval in seconds for updating BrewFather; BrewFather rejects updates more often than 15min
         self.stopThread = True              # flag used for stopping the background thread that updates BrewFather
-        self.dataTime = datetime.datetime.now()
+        self.bNewData = False
 
         # Data accepted by BrewFather; OK if some values are ""; not sure what happens if fields are missing.
         self.postdata = {
@@ -89,7 +89,7 @@ class BrewFather (threading.Thread):
         self.stopThread = True
 
     # sets the data currently supported by my system, will expand with system
-    def setData(self, _beer_temp, _aux_temp, _gravity, _dataTime):
+    def setData(self, _beer_temp, _aux_temp, _gravity):
         if _beer_temp != None:
             self.postdata["temp"] = str(round(float(_beer_temp),1))
         else:
@@ -105,8 +105,8 @@ class BrewFather (threading.Thread):
         else:
             self.postdata["gravity"] = ""
 
-        if _dataTime != None and (_beer_temp != None or _aux_temp != None or _gravity != None):
-            self.dataTime = _dataTime
+        if _beer_temp != None or _aux_temp != None or _gravity != None:
+            self.bNewData = True
             
 
     # method for connecting and updating BrewFather.app
@@ -120,18 +120,18 @@ class BrewFather (threading.Thread):
         # check the data has been updated since last update
         if self.bUpdate and self.sURL != "" and datetime.datetime.now() > updateTime and \
             self.postdata["name"] != "" and \
-            self.dataTime > self.lastUpdateTime:
+            self.bNewData:
             
             params = json.dumps(self.postdata).encode('utf8')
             req = request.Request(self.sURL, data=params, headers={'content-type': 'application/json'})
             response = request.urlopen(req)
-            logger.info("BrewFather: " + self.postdata["temp"] +"C, " + self.postdata["gravity"] + "SG, " + self.postdata["aux_temp"] +"C, " + datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S"))
+            self.bNewData = False
             self.lastUpdateTime = datetime.datetime.now()
+            logger.info("BrewFather: " + self.postdata["temp"] +"C, " + self.postdata["gravity"] + "SG, " + self.postdata["aux_temp"] +"C, " + self.lastUpdateTime.strftime("%d.%m.%Y %H:%M:%S"))
 
         else:
             logger.debug("Update paramters:\nbUpdate = "+str(self.bUpdate)+"\nsUrl = "+self.sURL+"\npostdata.Name = "+self.postdata["name"] + \
                 "\npostdata.temp = "+self.postdata["temp"]+"\npostdata.gravity = "+self.postdata["gravity"] + "\npostdata.aux_temp = "+self.postdata["aux_temp"] + \
-                    "\ndataTime = "+self.dataTime.strftime("%d.%m.%Y %H:%M:%S") + \
                         "\nupdateTime = "+updateTime.strftime("%d.%m.%Y %H:%M:%S") + \
                             "\nlastUpdateTime = "+self.lastUpdateTime.strftime("%d.%m.%Y %H:%M:%S") + \
                                "\nCurrent Time = "+datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S"))
