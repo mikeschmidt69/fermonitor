@@ -29,6 +29,9 @@ from setup_logger import logger
 from distutils.util import strtobool
 import configparser
 
+from flask import Flask, render_template                                                         
+import threading
+
 import chamber
 import interface
 import tilt
@@ -41,6 +44,16 @@ CONFIGFILE = "fermonitor.ini"
 
 CONTROL_TILT = 0
 CONTROL_WIRE = 1
+
+timeBeer = None
+target = None
+tempBeer = None
+tempChamber = None
+tempBeerWire = None
+gravity = None
+
+cTilt = None
+
 
 def read_settings():
     global sTiltColor
@@ -132,9 +145,19 @@ def read_settings():
     logger.debug("Completed reading settings")    
     return
 
+
 ################################################################
 def main():
     
+    global timeBeer
+    global target
+    global tempBeer
+    global tempChamber
+    global tempBeerWire
+    global gravity
+    global cTilt
+
+
     logger.info("Starting Fermonitor...")
 
     read_settings()
@@ -180,30 +203,54 @@ def main():
         else:
             cChamber.setTilt(None)
 
-        gravity = None
-        tempBeer = None
-        tempChamber = None
-        timeBeer = None
-
         if not cChamber.paused:
             target = cChamber.getTargetTemp()
             tempBeer = cChamber.getBeerTemp()
-            tempBeerWireTemp = cChamber.getWireBeerTemp()
+            tempBeerWire = cChamber.getWireBeerTemp()
             tempChamber = cChamber.getChamberTemp()
             timeBeer = cChamber.timeOfData()
             if cTilt is not None and cTilt.isDataValid():
                 gravity = cTilt.getGravity()
+            else:
+                gravity = None
 
             cBrewfather.setData(tempBeer, tempChamber, gravity)        
 
-            cInterface.setData( target, tempBeer, gravity, tempBeerWireTemp, tempChamber)
+            cInterface.setData( target, tempBeer, gravity, tempBeerWire, tempChamber)
+
+        else:
+            timeBeer = None
+            target = None
+            tempBeer = None
+            tempChamber = None
+            tempBeerWire = None
 
         time.sleep(1)
 
+app = Flask(__name__)
+@app.route("/", methods=["GET","POST"])
+def index():
+    data = {}
+
+    if timeBeer is not None:
+        data['timeBeer'] = timeBeer.strftime("%d.%m.%Y %H:%M:%S")
+    if target is not None:
+        data['target'] = str(round(float(target),1))
+    if tempBeer is not None and cTilt is not None:
+        data['tempBeer'] = str(round(float(tempBeer),1))
+    if tempBeerWire is not None and tempBeer != tempBeerWire:
+        data['tempBeerWire'] = str(round(float(tempBeerWire),1))
+    if tempChamber is not None:
+        data['tempChamber'] = str(round(float(tempChamber),1))
+    if gravity is not None:
+        data['gravity'] = "{:5.3f}".format(round(float(gravity),3))
+
+    return render_template('index.html', data=data)
 
 if __name__ == "__main__": #dont run this as a module
 
     try:
+        threading.Thread(target=app.run, args=('0.0.0.0','5000',False)).start()
         main()
 
     except KeyboardInterrupt:

@@ -175,7 +175,9 @@ class Interface (threading.Thread):
 
             except:
                 logger.error("*** PROBLEM WRITING TO LCD ***")
-                logger.error("Error:", sys.exc_info()[0])
+
+# This line caused another exception in logging system
+#                logger.error("Error:", sys.exc_info()[0])
                         
                 # Recreate LCD
                 self.lcd = I2C_LCD_driver.lcd()

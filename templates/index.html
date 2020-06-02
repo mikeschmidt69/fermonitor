@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Fermonitor</title>
+    </head>
+    <body>
+        <h1>Fermonitor</h1>
+        <form action="/" method="POST">
+
+            <table>
+                {% if data.timeBeer %}
+                <tr><td>Time of data: </td><td>{{ data.timeBeer }}</td></tr>
+                {% endif %}
+                {% if data.target %}
+                <tr><td>Target temperature: </td><td>{{ data.target }}C</td></tr>
+                {% endif %}
+                {% if data.tempBeer %}
+                <tr><td>Beer temperature: </td><td>{{ data.tempBeer }}C</td></tr>
+                {% endif %}
+                {% if data.tempBeerWire %}
+                <tr><td>Beer temperature (wire): </td><td>{{ data.tempBeerWire }}C</td></tr>
+                {% endif %}
+                {% if data.tempChamber %}
+                <tr><td>Chamber temperature: </td><td>{{ data.tempChamber }}C</td></tr>
+                {% endif %}
+                {% if data.gravity %}
+                <tr><td>Specific Gravity: </td><td>{{ data.gravity }}</td></tr>
+                {% endif %}
+                <tr><td>Dates</td><td><input type="text" id="dates" name="dates"></td></tr>
+                <tr><td>Temps</td><td><input type="text" id="temps" name="temps"></td></tr>
+                <tr><td>End Date</td><td><input type="text" id="end" name="end"></td></tr>
+                <tr><td colspan="2"><input type="submit" value="Submit"></td></tr>
+            </table>
+        </form>
+    </body>
+</html>

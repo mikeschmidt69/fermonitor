@@ -308,7 +308,7 @@ class Controller (threading.Thread):
                         raise Exception
                 except:
                     self.onDelay = DEFAULT_ON_DELAY
-                    logger.warning("Invalid OnDelay in configuration; using default: "+str(self.onDelay))
+                    logger.warning("Invalid OnDelay in configuration; using default: "+str(self.onDelay)+" seconds")
 
         except:
             logger.warning("Problem read from configuration file: "+CONFIGFILE)
