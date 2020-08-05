@@ -138,7 +138,7 @@ class BrewFather (threading.Thread):
             except:
                 logger.error("Exception posting to Brewfather: "+self.getLastJSON())
         else:
-            logger.debug("Update paramters:\nbUpdate = "+str(self.bUpdate)+"\nsUrl = "+self.sURL+"\npostdata.Name = "+self.postdata["name"] + \
+            logger.debug("Update parameters:\nbUpdate = "+str(self.bUpdate)+"\nsUrl = "+self.sURL+"\npostdata.Name = "+self.postdata["name"] + \
                 "\npostdata.temp = "+self.postdata["temp"]+"\npostdata.gravity = "+self.postdata["gravity"] + "\npostdata.aux_temp = "+self.postdata["aux_temp"] + \
                         "\nupdateTime = "+updateTime.strftime("%d.%m.%Y %H:%M:%S") + \
                             "\nlastUpdateTime = "+self.lastUpdateTime.strftime("%d.%m.%Y %H:%M:%S") + \
