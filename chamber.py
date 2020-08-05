@@ -108,11 +108,12 @@ class Chamber(threading.Thread):
 
         # if Tilt is configured and available replace related values
         if (self.tilt is not None):
-            if self.tilt.isDataValid():
+            tiltdatatime = self.tilt.timeOfData()
+            if tiltdatatime is not None and tiltdatatime > datetime.datetime.now() - datetime.timedelta(minutes=5):
                 self.beerTemp = self.tilt.getTemp()
                 self.beerSG = self.tilt.getGravity()
-                if self.timeData < self.tilt.timeOfData():
-                    self.timeData = self.tilt.timeOfData()
+                if self.timeData < tiltdatatime:
+                    self.timeData = tiltdatatime
             else:
                 self.beerSG = DEFAULT_SG
                 logger.error("Data from tilt unavailable, checking again in 60s: using wired temperatures")
@@ -174,10 +175,10 @@ class Chamber(threading.Thread):
 
 
     def getDates(self):
-        return self.tempDates
+        return self.tempDates.copy()
 
     def getTemps(self):
-        return self.targetTemps
+        return self.targetTemps.copy()
 
     def getTargetTemp(self):
         if self.targetTemp == DEFAULT_TEMP:
@@ -191,12 +192,6 @@ class Chamber(threading.Thread):
         else:
             return self.beerTemp
     
-    def getBeerSG(self):
-        if self.beerSG == DEFAULT_SG:
-            return None
-        else:
-            return self.beerSG
-
     def getWireBeerTemp(self):
         if self.beerWireTemp == DEFAULT_TEMP:
             return None
@@ -220,6 +215,9 @@ class Chamber(threading.Thread):
     # returns time when data was updated
     def timeOfData(self):
         return self.timeData
+
+    def getController(self):
+        return self.control
 
     def paused(self):
         return self.paused

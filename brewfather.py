@@ -68,6 +68,7 @@ class BrewFather (threading.Thread):
             "comment": "",
             "beer": ""
         }
+        self.jsondump = ""
 
         # Keeps track of last time BrewFather was updated to know when it can be updated again
         self.lastUpdateTime = datetime.datetime.now() - datetime.timedelta(seconds=self.interval) # last time the tilt was read
@@ -108,6 +109,11 @@ class BrewFather (threading.Thread):
         if _beer_temp != None or _aux_temp != None or _gravity != None:
             self.bNewData = True
             
+    def getLastJSON(self):
+        return self.jsondump
+
+    def getLastRequestTime(self):
+        return self.lastUpdateTime
 
     # method for connecting and updating BrewFather.app
     def _update(self):
@@ -122,13 +128,15 @@ class BrewFather (threading.Thread):
             self.postdata["name"] != "" and \
             self.bNewData:
             
-            params = json.dumps(self.postdata).encode('utf8')
-            req = request.Request(self.sURL, data=params, headers={'content-type': 'application/json'})
-            response = request.urlopen(req)
-            self.bNewData = False
-            self.lastUpdateTime = datetime.datetime.now()
-            logger.info("BrewFather: " + self.postdata["temp"] +"C, " + self.postdata["gravity"] + "SG, " + self.postdata["aux_temp"] +"C, " + self.lastUpdateTime.strftime("%d.%m.%Y %H:%M:%S"))
-
+            try:
+                self.jsondump = json.dumps(self.postdata).encode('utf8')
+                req = request.Request(self.sURL, data=self.jsondump, headers={'content-type': 'application/json'})
+                response = request.urlopen(req)
+                self.bNewData = False
+                self.lastUpdateTime = datetime.datetime.now()
+                logger.info("BrewFather: " + self.postdata["temp"] +"C, " + self.postdata["gravity"] + "SG, " + self.postdata["aux_temp"] +"C, " + self.lastUpdateTime.strftime("%d.%m.%Y %H:%M:%S"))
+            except:
+                logger.error("Exception posting to Brewfather: "+self.getLastJSON())
         else:
             logger.debug("Update paramters:\nbUpdate = "+str(self.bUpdate)+"\nsUrl = "+self.sURL+"\npostdata.Name = "+self.postdata["name"] + \
                 "\npostdata.temp = "+self.postdata["temp"]+"\npostdata.gravity = "+self.postdata["gravity"] + "\npostdata.aux_temp = "+self.postdata["aux_temp"] + \

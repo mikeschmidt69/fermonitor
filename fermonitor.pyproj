@@ -25,7 +25,13 @@
     <Compile Include="blescan.py" />
     <Compile Include="brewfather.py" />
     <Compile Include="chamber.py" />
+    <Compile Include="class1.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="controller.py" />
+    <Compile Include="module1.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="test_interface.py" />
     <Compile Include="settings.py" />
     <Compile Include="setup_logger.py" />

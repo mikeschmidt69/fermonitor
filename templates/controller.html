@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Fermonitor - Controller</title>
+    <meta http-equiv="refresh" content="60">
+</head>
+<body>
+    <h1>Fermonitor - Controller</h1>
+    <a href="/">Home</a> - <a href="/tilt">Tilt</a> - <a href="/chamber">Chamber</a> - <a href="/controller">Controller</a> - <a href="/brewfather">Brewfather</a>
+    <hr />
+    <table>
+        {% if data.validData %}
+        <tr><td>Valid data: </td><td>{{ data.validData }}</td></tr>
+        {% endif %}
+        {% if data.timeData %}
+        <tr><td>Time of data: </td><td>{{ data.timeData }}</td></tr>
+        {% endif %}
+        {% if data.tempBeer %}
+        <tr><td>Beer temperature: </td><td>{{ data.tempBeer }}C</td></tr>
+        {% endif %}
+        {% if data.tempChamber %}
+        <tr><td>Chamber temperature: </td><td>{{ data.tempChamber }}C</td></tr>
+        {% endif %}
+        {% if data.tempInternal %}
+        <tr><td>Internal controller temperature: </td><td>{{ data.tempInternal }}C</td></tr>
+        {% endif %}
+        {% if data.heating %}
+        <tr><td>Heating ON: </td><td>{{ data.heating }}</td></tr>
+        {% endif %}
+        {% if data.cooling %}
+        <tr><td>Cooling ON: </td><td>{{ data.cooling }}</td></tr>
+        {% endif %}
+    </table>
+</body>
+</html>

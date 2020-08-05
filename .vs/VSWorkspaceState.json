@@ -1,7 +1,8 @@
 {
   "ExpandedNodes": [
-    ""
+    "",
+    "\\templates"
   ],
-  "SelectedNode": "\\controller.py",
+  "SelectedNode": "\\brewfather.py",
   "PreviewInSolutionExplorer": false
 }

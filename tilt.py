@@ -24,7 +24,7 @@
 # https://www.instructables.com/id/Reading-a-Tilt-Hydrometer-With-a-Raspberry-Pi/
 
 import blescan
-import datetime
+from datetime import datetime, timedelta
 import time
 import os
 import bluetooth._bluetooth as bluez
@@ -49,6 +49,10 @@ PINK = "PINK"
 DEFAULT_BT_DEVICE_ID = 0
 MINIMUM_INTERVAL = 10
 CONFIGFILE = "tilt.ini"
+
+DATA_HISTORY_SIZE = 100
+
+DATETIME_FORMAT = "%d.%m.%Y %H:%M:%S"
 
 def validColor(color):
     if color in {RED,GREEN,BLACK,PURPLE,ORANGE,BLUE,YELLOW,PINK}:
@@ -94,11 +98,9 @@ class Tilt (threading.Thread):
         self.bluetoothDeviceId = DEFAULT_BT_DEVICE_ID
         self.interval = MINIMUM_INTERVAL
 
-        self.lastUpdateTime = datetime.datetime.now()  - datetime.timedelta(seconds=self.interval) # last time the tilt was read
+        self.lastUpdateTime = datetime.now()  - timedelta(seconds=self.interval) # last time the tilt was read
      
-        self.validData = False # indicates if the current data is from a valid reading
-        self.temp = -273.15 # last read temperature from tilt
-        self.sg = 0.0 # last read specific gravity from tilt
+        self.data = []
         self.stopThread = True
         self._readConf()
 
@@ -109,35 +111,37 @@ class Tilt (threading.Thread):
         logger.info("Starting Tilt Monitoring: "+self.color)
         self.stopThread = False
         while self.stopThread != True:
+            self._readConf()
             self._update()    # calls method that updates data from Tilt if update time interval has lapsed
             time.sleep(MINIMUM_INTERVAL)
         logger.info("Tilt Monitoring:"+self.color+" Stopped.")
 
 
+    # returns time when date and specific gravity were updated from Tilt
+    def timeOfData(self):
+        if len(self.data) > 0:
+            return datetime.strptime(self.data[len(self.data)-1]['TIME'], DATETIME_FORMAT)
+        return None
+
+
     # Returns last read temperature reading from Tilt
     def getTemp(self):
-        return self.temp
+        if len(self.data) > 0:
+            return float(self.data[len(self.data)-1]['TEMP'])
+        return None
 
 
     # Returns last read specific gravity reading from Tilt
     def getGravity(self):
-        return self.sg
+        if len(self.data) > 0:
+            return float(self.data[len(self.data)-1]['SG'])
+        return None
 
 
     # Returns color of tilt
     def getColor(self):
         return self.color
         
-
-    # returns True/False if data is valid. Data is not valid until read from the actual Tilt device
-    def isDataValid(self):
-        return self.validData   
-
-
-    # returns time when date and specific gravity were updated from Tilt
-    def timeOfData(self):
-        return self.lastUpdateTime
-
 
     # sets interval that data is read from Tilt hydrometer
     def setInterval(self, _interval):
@@ -152,19 +156,20 @@ class Tilt (threading.Thread):
  
     # Internal method for checking if the update time interval has lapsed and new data should be read from Tilt
     def _update(self):
-        updateTime = self.lastUpdateTime + datetime.timedelta(seconds=self.interval)
-        if datetime.datetime.now() > updateTime:
+        updateTime = self.lastUpdateTime + timedelta(seconds=self.interval)
+        if datetime.now() > updateTime:
             logger.debug("Update data")
             self._readdata()
+            self.lastUpdateTime = datetime.now()
         else:
-            logger.debug("Update interval not reached:"+datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S") +" / "+ updateTime.strftime("%d.%m.%Y %H:%M:%S")) 
+            logger.debug("Update interval not reached:"+datetime.now().strftime(DATETIME_FORMAT) +" / "+ updateTime.strftime(DATETIME_FORMAT)) 
 
 
     # Method for scan BLE advertisements until one matching tilt uuid is found and data (temperature, specific gravity) is read and stored
     def _readdata(self):
 
-        curTime = datetime.datetime.now()
-        timeout = curTime + datetime.timedelta(minutes=1) # scan for 1 minute looking for data from tilt
+        curTime = datetime.now()
+        timeout = curTime + timedelta(minutes=1) # scan for 1 minute looking for data from tilt
 
         logger.debug("Connecting to Bluetooth...")
         try:
@@ -201,24 +206,32 @@ class Tilt (threading.Thread):
                         gotData = 0 # wrong tilt
                     elif  foundTemp > 200:  # first reading always showed temperature of 537.2C and SG 1.0
                         logger.debug("Skipping initial datasets as temp and SG are always wrong")
-                        timeout = curTime + datetime.timedelta(minutes=1) # extend timeout looking for valid data from tilt
+                        timeout = curTime + timedelta(minutes=1) # extend timeout looking for valid data from tilt
                         gotData = 0 # forces to continue reading from tilt looking for valid data
                     else:
-                        self.temp = foundTemp
-                        self.sg = foundSG
-                        self.lastUpdateTime = datetime.datetime.now()
-                        self.validData = True
-                        logger.info(self.color+" - "+self.lastUpdateTime.strftime("%d.%m.%Y %H:%M:%S")+" - T:"+str(round(float(self.temp),1))+" - SG:"+"{:5.3f}".format(round(float(self.sg),3)))
+                        self._storeData(foundTemp, foundSG, curTime)
+                        logger.info(self.color+" - "+curTime.strftime(DATETIME_FORMAT)+" - T:"+str(round(float(foundTemp),1))+" - SG:"+"{:5.3f}".format(round(float(foundSG),3)))
 
-            curTime = datetime.datetime.now()
+            curTime = datetime.now()
 
         # Did not collect data before timeout; set data as invalid
         if gotData == 0:
-            self.validData = False;
             logger.debug("Timed out collecting data from Tilt")
 
         blescan.hci_disable_le_scan(sock)
         return True
+
+
+    def _storeData(self, _temp, _sg, _time):
+        while len(self.data) >= DATA_HISTORY_SIZE:
+            self.data.pop(0)
+
+        self.data.append({'TEMP': str(round(float(_temp),1)), 'SG': "{:5.3f}".format(round(float(_sg),3)), 'TIME':_time.strftime(DATETIME_FORMAT)})
+
+
+    # return a copy of the data to be used outside module
+    def getData(self):
+        return self.data.copy()
 
 
     def _readConf(self):

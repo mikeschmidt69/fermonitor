@@ -33,6 +33,7 @@ from flask import Flask, render_template
 import threading
 
 import chamber
+import controller
 import interface
 import tilt
 import brewfather
@@ -53,7 +54,8 @@ tempBeerWire = None
 gravity = None
 
 cTilt = None
-
+cChamber = None
+cBrewfather = None
 
 def read_settings():
     global sTiltColor
@@ -156,6 +158,8 @@ def main():
     global tempBeerWire
     global gravity
     global cTilt
+    global cChamber
+    global cBrewfather
 
 
     logger.info("Starting Fermonitor...")
@@ -209,8 +213,10 @@ def main():
             tempBeerWire = cChamber.getWireBeerTemp()
             tempChamber = cChamber.getChamberTemp()
             timeBeer = cChamber.timeOfData()
-            if cTilt is not None and cTilt.isDataValid():
-                gravity = cTilt.getGravity()
+            if cTilt is not None:
+                datatime = cTilt.timeOfData()
+                if datatime is not None and datatime > datetime.datetime.now() - datetime.timedelta(minutes=5):
+                    gravity = cTilt.getGravity()
             else:
                 gravity = None
 
@@ -229,7 +235,7 @@ def main():
 
 app = Flask(__name__)
 @app.route("/", methods=["GET","POST"])
-def index():
+def index_html():
     data = {}
 
     if timeBeer is not None:
@@ -246,6 +252,72 @@ def index():
         data['gravity'] = "{:5.3f}".format(round(float(gravity),3))
 
     return render_template('index.html', data=data)
+
+@app.route("/tilt", methods=["GET","POST"])
+def tilt_html():
+    data = []
+    if cTilt is not None:
+        data = cTilt.getData()
+        data.reverse()
+
+    return render_template('tilt.html', data=data)
+
+@app.route("/chamber", methods=["GET","POST"])
+def chamber_html():
+    data = {}
+
+    if cChamber is not None:
+        data['dates'] = ', '.join([item.strftime("%d.%m.%Y %H:%M:%S") for item in cChamber.getDates()])
+        data['temps'] = ', '.join([str(round(float(item),1)) for item in cChamber.getTemps()])
+        if cChamber.getTargetTemp() is not None:
+            data['target'] = str(round(float(cChamber.getTargetTemp()),1))
+        if cChamber.getBeerTemp() is not None:
+            data['tempBeer'] = str(round(float(cChamber.getBeerTemp()),1))
+        if cChamber.getWireBeerTemp() is not None:
+            data['tempBeerWire'] = str(round(float(cChamber.getWireBeerTemp()),1))
+        if cChamber.getChamberTemp() is not None:
+            data['tempChamber'] = str(round(float(cChamber.getChamberTemp()),1))
+        if cChamber.timeOfData() is not None:
+            data['timeBeer'] = cChamber.timeOfData().strftime("%d.%m.%Y %H:%M:%S")
+        data['tiltControlled'] = str(cChamber.isTiltControlled())
+
+    return render_template('chamber.html', data=data)
+
+@app.route("/controller", methods=["GET","POST"])
+def controller_html():
+    data = {}
+
+    control = None
+
+    if cChamber is not None:
+        control = cChamber.getController()
+
+    if control is not None:
+        if control.timeOfData() is not None:
+            data['timeData'] = control.timeOfData().strftime("%d.%m.%Y %H:%M:%S")
+        if control.getBeerTemp() is not None:
+            data['tempBeer'] = str(round(float(control.getBeerTemp()),1))
+        if control.getChamberTemp() is not None:
+            data['tempChamber'] = str(round(float(control.getChamberTemp()),1))
+        if control.getInternalTemp() is not None:
+            data['tempInternal'] = str(round(float(control.getInternalTemp()),1))
+        data['heating'] = str(control.isHeating())
+        data['cooling'] = str(control.isCooling())
+        data['validData'] = str(control.isDataValid())
+
+    return render_template('controller.html', data=data)
+
+@app.route("/brewfather", methods=["GET","POST"])
+def brewfather_html():
+    data = ""
+    timeData = ""
+
+    if cBrewfather is not None:
+        data = cBrewfather.getLastJSON()
+        timeData = cBrewfather.getLastRequestTime().strftime("%d.%m.%Y %H:%M:%S")
+
+    return render_template('brewfather.html', data=data, timeData=timeData)
+
 
 if __name__ == "__main__": #dont run this as a module
 
