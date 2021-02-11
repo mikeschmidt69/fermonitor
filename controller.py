@@ -66,7 +66,7 @@ class Controller (threading.Thread):
         self.coolEndTime = datetime.datetime.now() - datetime.timedelta(seconds=self.onDelay) # last time cool turned off
 
         self.ser = serial.Serial(PORT,RATE) # sets up serial communication
-        self.ser.flushInput()               # flush any data that might be in channel
+        self.ser.flush()               # flush any data that might be in channel
 
     # Starts the background thread
     def run(self):
@@ -85,12 +85,17 @@ class Controller (threading.Thread):
             time.sleep(UPDATE_INVERVAL)
 
             # reads and processes all data from serial queue
-            while self.ser.inWaiting() > 0:
-                inputValue = self.ser.readline()
-                str = inputValue.decode()
-                str = str.strip()
-                logger.debug("RESPONSE Raw: "+str)
-                self._processControllerResponse(str)
+            try:
+                while self.ser.inWaiting() > 0:
+                    str = self.ser.readline().decode().rstrip()
+                    logger.debug("RESPONSE Raw: "+str)
+                    self._processControllerResponse(str)
+            except:
+                logger.error("Error reading from serial: "+str)
+                self.ser = None
+                self.ser = serial.Serial(PORT,RATE) # sets up serial communication
+                self.ser.flush() # flush any data that might be in channel
+
 
             if self.bStopRequest:
                 if not self.bCoolOn and not self.bHeatOn:
@@ -117,45 +122,52 @@ class Controller (threading.Thread):
     #   # = temperature of chamber
     # S = degrees to internal safety temperature (negative value indicates safe temperature exceeded)
     #   # = temperature of inside of controller to ensure device doesn't overheat
-    def _processControllerResponse(self, str):
+    def _processControllerResponse(self, _str):
         try:
             curTime = datetime.datetime.now()
             sTime =  self.lastUpdateTime.strftime("%d.%m.%Y %H:%M:%S")
 
-            lhs, rhs = str.split(":", 1)
-            if lhs == "C":
-                if rhs == "-":
-                    logger.debug("("+sTime+"): Cooling is OFF")
-                    if self.bCoolOn == True:
-                        self.coolEndTime = curTime
-                    self.bCoolOn = False
-                elif rhs == "+":
-                    logger.debug("("+sTime+"): Cooling is ON")
-                    self.bCoolOn = True
-            elif lhs == "H":
-                if rhs == "-":
-                    logger.debug("("+sTime+"): Heating is OFF")
-                    if self.bHeatOn == True:
-                        self.heatEndTime = curTime
-                    self.bHeatOn = False
-                elif rhs == "+":
-                    logger.debug("("+sTime+"): Heating is ON")
-                    self.bHeatOn = True
-            elif lhs == "F":
-                self.chamberTemp = float(rhs)
-                logger.debug("("+sTime+"): Fridge temperature: {:5.3f}C".format(round(float(self.getChamberTemp()),1)))
-                self.lastUpdateTime = curTime
-            elif lhs == "B":
-                self.beerTemp = float(rhs)
-                logger.debug("("+sTime+"): Beer temperature: {:5.3f}C".format(round(float(self.getBeerTemp()),1)))
-                self.lastUpdateTime = curTime
-            elif lhs == "S":
-                self.internalTemp = float(rhs)
-                logger.debug("("+sTime+"): Delta to safety temperature: "+rhs+"C")
-                self.lastUpdateTime = curTime
+            str_list = _str.split(":", 1)
+            if len(str_list) > 1:
+                if str_list[0] == "C":
+                    if str_list[1] == "-":
+                        logger.debug("("+sTime+"): Cooling is OFF")
+                        if self.bCoolOn == True:
+                            self.coolEndTime = curTime
+                        self.bCoolOn = False
+                    elif str_list[1] == "+":
+                        logger.debug("("+sTime+"): Cooling is ON")
+                        self.bCoolOn = True
+                elif str_list[0] == "H":
+                    if str_list[1] == "-":
+                        logger.debug("("+sTime+"): Heating is OFF")
+                        if self.bHeatOn == True:
+                            self.heatEndTime = curTime
+                        self.bHeatOn = False
+                    elif str_list[1] == "+":
+                        logger.debug("("+sTime+"): Heating is ON")
+                        self.bHeatOn = True
+                elif str_list[0] == "F":
+                    self.chamberTemp = float(str_list[1])
+                    logger.debug("("+sTime+"): Fridge temperature: {:5.3f}C".format(round(float(self.getChamberTemp()),1)))
+                    self.lastUpdateTime = curTime
+                elif str_list[0] == "B":
+                    self.beerTemp = float(str_list[1])
+                    logger.debug("("+sTime+"): Beer temperature: {:5.3f}C".format(round(float(self.getBeerTemp()),1)))
+                    self.lastUpdateTime = curTime
+                elif str_list[0] == "S":
+                    self.internalTemp = float(str_list[1])
+                    logger.debug("("+sTime+"): Delta to safety temperature: {:5.3f}C".format(round(float(self.getInternalTemp()),1)))
+                    self.lastUpdateTime = curTime
+                elif str_list[0] == "I":
+                    logger.debug("("+sTime+"): "+str_list[1])
+                    self.lastUpdateTime = curTime
+                elif str_list[0] == "W":
+                    logger.debug("("+sTime+"): "+str_list[1])
+                    self.lastUpdateTime = curTime
 
         except BaseException as e:
-            logger.error("ERROR: %s\n" % str(e))
+            logger.error("ERROR: %s\n" % e)
 
 
     # stops the background thread and requests heating and cooling to be stopped
@@ -171,32 +183,34 @@ class Controller (threading.Thread):
 
     # requests cooling to start; this will turn off heating
     def startCooling(self):
-        curTime = datetime.datetime.now()
-        sTime = curTime.strftime("%d.%m.%Y %H:%M:%S")
+        if self.isCooling() == False:
+            curTime = datetime.datetime.now()
+            sTime = curTime.strftime("%d.%m.%Y %H:%M:%S")
 
-        logger.debug("("+sTime+"): Cooling request")
+            logger.debug("("+sTime+"): Cooling request")
             
-        if curTime > self.coolEndTime + datetime.timedelta(seconds=self.onDelay):
-            logger.debug("("+sTime+"): Cooling Turned ON")
-            self.ser.write(b'C\n')
-        else:
-            logger.debug("("+sTime+"): Cooling delay has not expired")
-            self.ser.write(b'O\n')
+            if curTime > self.coolEndTime + datetime.timedelta(seconds=self.onDelay):
+                logger.debug("("+sTime+"): Cooling Turned ON")
+                self.ser.write(b'C\n')
+            else:
+                logger.debug("("+sTime+"): Cooling delay has not expired")
+                self.ser.write(b'O\n')
 
 
     # requests heating to start; this will turn off cooling
     def startHeating(self):
-        curTime = datetime.datetime.now()
-        sTime = curTime.strftime("%d.%m.%Y %H:%M:%S")
+        if self.isHeatinging() == False:
+            curTime = datetime.datetime.now()
+            sTime = curTime.strftime("%d.%m.%Y %H:%M:%S")
         
-        logger.debug("("+sTime+"): Heating request")
+            logger.debug("("+sTime+"): Heating request")
 
-        if curTime > self.heatEndTime + datetime.timedelta(seconds=self.onDelay):
-            logger.debug("("+sTime+"): Heating Turned ON")
-            self.ser.write(b'H\n')
-        else:
-            logger.debug("("+sTime+"): Heating delay has not expired")
-            self.ser.write(b'O\n')
+            if curTime > self.heatEndTime + datetime.timedelta(seconds=self.onDelay):
+                logger.debug("("+sTime+"): Heating Turned ON")
+                self.ser.write(b'H\n')
+            else:
+                logger.debug("("+sTime+"): Heating delay has not expired")
+                self.ser.write(b'O\n')
 
     # requests both heating and cooling to be stopped
     def stopHeatingCooling(self):

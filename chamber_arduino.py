@@ -24,43 +24,30 @@ import threading
 import datetime
 import time
 import logging
+import controller
 import tilt
 from setup_logger import logger
 import configparser
-import RPi.GPIO as GPIO
 
 logger = logging.getLogger('CHAMBER')
 logger.setLevel(logging.INFO)
 
 UPDATE_INVERVAL = 1 # update interval in seconds
+PAUSE_DELAY = 60 # number of seconds to delay when system is paused before continuing
 CONFIGFILE = "chamber.ini"
 
 DEFAULT_TEMP = -999
+DEFAULT_SG = -999
 DEFAULT_BUFFER_BEER_TEMP = 0.5       # +/- degrees celcius beer is from target when heating/cooling will be turned on
 DEFAULT_BUFFER_CHAMBER_SCALE = 5.0   # scale factor of temperature delta chamber is from target controlling when heating/cooling will be turned on/off
-DEFAULT_ON_DELAY = 600
-TEMP_CHANGE_THRESHOLD = 5.0
 
-PIN_HEAT_RELAY = 5 # motion pin
-PIN_HEAT_LED = 23 # motion pin
-PIN_COOL_RELAY = 6 # motion pin
-PIN_COOL_LED = 24 # motion pin
 
 class Chamber(threading.Thread):
 
     def __init__(self, _tilt):
         threading.Thread.__init__(self)
-
-        # Set the GPIO naming conventions
-        GPIO.setmode (GPIO.BCM)
-        GPIO.setwarnings(False)
-        GPIO.setup(PIN_HEAT_RELAY, GPIO.OUT) # GPIO Assign mode
-        GPIO.setup(PIN_HEAT_LED, GPIO.OUT) # GPIO Assign mode
-        GPIO.setup(PIN_COOL_RELAY, GPIO.OUT) # GPIO Assign mode
-        GPIO.setup(PIN_COOL_LED, GPIO.OUT) # GPIO Assign mode
-
-
         self.stopThread = True              # flag used for stopping the background thread
+        self.control = controller.Controller()
         self.tilt = _tilt
         self.tempDates = [datetime.datetime.now()]
         self.targetTemps = [DEFAULT_TEMP]
@@ -70,25 +57,11 @@ class Chamber(threading.Thread):
         self.beerTemp = DEFAULT_TEMP
         self.beerWireTemp = DEFAULT_TEMP
         self.chamberTemp = DEFAULT_TEMP
+        self.beerSG = DEFAULT_SG
         self.timeData = datetime.datetime.now()
+        self.paused = False
+        self.control.start()
 
-        self.onDelay = DEFAULT_ON_DELAY
-        self.beerTAdjust = 0.0
-        self.chamberTAdjust = 0.0
-
-        self.coolEndTime = datetime.datetime.now() - datetime.timedelta(seconds=self.onDelay*2)
-        self.heatEndTime = datetime.datetime.now() - datetime.timedelta(seconds=self.onDelay*2)
-
-        self.bHeatOn = False
-        self.bCoolOn = False
-        self._controlheatingcooling(PIN_HEAT_RELAY, PIN_HEAT_LED, False)
-        self._controlheatingcooling(PIN_COOL_RELAY, PIN_COOL_LED, False)
-        
-    def isHeating(self):
-        return self.bHeatOn
-
-    def isCooling(self):
-        return self.bCoolOn
 
     # Starts the background thread
     def run(self):
@@ -100,8 +73,6 @@ class Chamber(threading.Thread):
             self._evaluate()
             time.sleep(UPDATE_INVERVAL)
 
-        self._controlheatingcooling(PIN_COOL_RELAY, PIN_COOL_LED, False)
-        self._controlheatingcooling(PIN_HEAT_RELAY, PIN_HEAT_LED, False)
         logger.info("Chamber Stopped")
 
 
@@ -112,16 +83,43 @@ class Chamber(threading.Thread):
         self.stopThread = True
     
     def _evaluate(self):
-        logger.debug("_evaluate")
+        self.control
         self.targetTemps
         self.tempDates
         self.bufferBeerTemp
         self.bufferChamberScale
 
-        # read latest temperatures
-        self.getChamberTemp()
-        self.getBeerTemp()
+        # use wired data initially
+        if self.control.isDataValid():
+            self.beerTemp = self.control.getBeerTemp()
+            self.beerWireTemp = self.control.getBeerTemp()
+            self.chamberTemp = self.control.getChamberTemp()
+            self.timeData = self.control.timeOfData()
+        else:
+            self.beerTemp = DEFAULT_TEMP
+            self.beerWireTemp = DEFAULT_TEMP
+            self.chamberTemp = DEFAULT_TEMP
 
+            self.control.stopHeatingCooling()
+            logger.error("Chamber paused (60s), heating and cooling stopped: controller data is invalid")
+            self.paused = True
+            time.sleep(PAUSE_DELAY)
+            return
+
+        # if Tilt is configured and available replace related values
+        if (self.tilt is not None):
+            tiltdatatime = self.tilt.timeOfData()
+            if tiltdatatime is not None and tiltdatatime > datetime.datetime.now() - datetime.timedelta(minutes=5):
+                self.beerTemp = self.tilt.getTemp()
+                self.beerSG = self.tilt.getGravity()
+                if self.timeData < tiltdatatime:
+                    self.timeData = tiltdatatime
+            else:
+                self.beerSG = DEFAULT_SG
+                logger.error("Data from tilt unavailable, checking again in 60s: using wired temperatures")
+                time.sleep(PAUSE_DELAY)
+
+        self.paused = False
         _curTime = datetime.datetime.now()
             
         # check which of the temperature change dates have passed
@@ -134,15 +132,13 @@ class Chamber(threading.Thread):
         if datesPassed == 0:
             # Turn off heating and cooling
             logger.debug("Leaving chamber heating/cooling off until first date reached: " + self.tempDates[datesPassed].strftime("%d.%m.%Y %H:%M:%S"))
-            self._controlheatingcooling(PIN_HEAT_RELAY, PIN_HEAT_LED, False)
-            self._controlheatingcooling(PIN_COOL_RELAY, PIN_COOL_LED, False)
+            self.control.stopHeatingCooling()
             return
 
         # check if last date has been reached. If so, heating/cooling should stop
         elif datesPassed == len(self.tempDates):
             logger.debug("Last date reached turning heating/cooling off: " + self.tempDates[datesPassed-1].strftime("%d.%m.%Y %H:%M:%S"))
-            self._controlheatingcooling(PIN_HEAT_RELAY, PIN_HEAT_LED, False)
-            self._controlheatingcooling(PIN_COOL_RELAY, PIN_COOL_LED, False)
+            self.control.stopHeatingCooling()
             return
 
         # date is within configured range    
@@ -155,11 +151,10 @@ class Chamber(threading.Thread):
                 if (self.targetTemp - self.chamberTemp) < self.bufferChamberScale*(self.beerTemp - self.targetTemp):
                     # Turn cooling ON
                     logger.debug("Cooling to be turned ON - Target: " + str(self.targetTemp) + "; Beer: " + str(self.beerTemp) + "; Chamber: " + str(self.chamberTemp) + "; Beer Buffer: " + str(self.bufferBeerTemp) + "; Chamber Scale: " + str(self.bufferChamberScale))
-                    self._controlheatingcooling(PIN_COOL_RELAY, PIN_COOL_LED, True)
+                    self.control.startCooling()
                 else:
                     logger.debug("Chamber is cold enough to cool beer")
-                    self._controlheatingcooling(PIN_COOL_RELAY, PIN_COOL_LED, False)
-                    self._controlheatingcooling(PIN_HEAT_RELAY, PIN_HEAT_LED, False)
+                    self.control.stopHeatingCooling()
 
             # beer is cooler than target + buffer, consider heating
             elif self.beerTemp < (self.targetTemp - self.bufferBeerTemp):
@@ -167,17 +162,16 @@ class Chamber(threading.Thread):
                if (self.chamberTemp - self.targetTemp) < self.bufferChamberScale*(self.targetTemp - self.beerTemp):
                     # Turn heating ON
                     logger.debug("Heating to be turned ON - Target: " + str(self.targetTemp) + "; Beer: " + str(self.beerTemp) + "; Chamber: " + str(self.chamberTemp) + "; Beer Buffer: " + str(self.bufferBeerTemp) + "; Chamber Scale: " + str(self.bufferChamberScale))
-                    self._controlheatingcooling(PIN_HEAT_RELAY, PIN_HEAT_LED, True)
+                    self.control.startHeating()
                else:
                     logger.debug("Chamber is warm enough to heat beer")
-                    self._controlheatingcooling(PIN_COOL_RELAY, PIN_COOL_LED, False)
-                    self._controlheatingcooling(PIN_HEAT_RELAY, PIN_HEAT_LED, False)
+                    self.control.stopHeatingCooling()
 
             # beer is within range of target +/- buffer
             else:
                 logger.debug("No heating/cooling needed - Target: " + str(self.targetTemp) + "; Beer: " + str(self.beerTemp) + "; Chamber: " + str(self.chamberTemp) + "; Beer Buffer: " + str(self.bufferBeerTemp) + "; Chamber Scale: " + str(self.bufferChamberScale))
-                self._controlheatingcooling(PIN_COOL_RELAY, PIN_COOL_LED, False)
-                self._controlheatingcooling(PIN_HEAT_RELAY, PIN_HEAT_LED, False)
+                self.control.stopHeatingCooling()
+        return  
 
 
     def getDates(self):
@@ -192,74 +186,23 @@ class Chamber(threading.Thread):
         else:
             return self.targetTemp
 
-    # reads beer temperature from tilt, if configured and less than 5min old, or wire and returns value
     def getBeerTemp(self):
-        logger.debug("getBeerTemp")
-
-        # if Tilt is configured and available replace related values
-        if (self.tilt is not None):
-            tiltdatatime = self.tilt.timeOfData()
-            if tiltdatatime is not None and tiltdatatime > datetime.datetime.now() - datetime.timedelta(minutes=5):
-                self.beerTemp = self.tilt.getTemp()
-                if self.timeData < tiltdatatime:
-                    self.timeData = tiltdatatime
-            else:
-                logger.error("Data from tilt unavailable; using wired temperatures")
-                self.beerTemp = self.getWireBeerTemp()
-        else:
-           self.beerTemp = self.getWireBeerTemp()
-
         if self.beerTemp == DEFAULT_TEMP:
             return None
         else:
             return self.beerTemp
     
     def getWireBeerTemp(self):
-        logger.debug("getWireBeerTemp")
-
-        id = '28-02148151b0ff'
-
-        _temp = self._gettemp(id) + self.beerTAdjust
-        
-        # if the stored temperature is default value or less than change threshold with updated reading, store new value
-        if self.beerWireTemp == DEFAULT_TEMP or abs(_temp - self.beerWireTemp) < TEMP_CHANGE_THRESHOLD:
-            self.beerWireTemp = _temp
-        # bigger jump in temperature threshold, take average of 10 readings
-        else:
-            self.beerWireTemp = self._avgtemp(id,10) + self.beerTAdjust
-
         if self.beerWireTemp == DEFAULT_TEMP:
             return None
         else:
             return self.beerWireTemp
 
     def getChamberTemp(self):
-        logger.debug("getChamberTemp")
-        
-        id = '28-0417004ebfff'
-
-        _temp = self._gettemp(id) + self.chamberTAdjust
-        
-        # if the stored temperature is default value or less than change threshold with updated reading, store new value
-        if self.chamberTemp == DEFAULT_TEMP or abs(_temp - self.chamberTemp) < TEMP_CHANGE_THRESHOLD:
-            self.chamberTemp = _temp
-        # bigger jump in temperature threshold, take average of 10 readings
-        else:
-            self.chamberTemp = self._avgtemp(id,10) + self.chamberTAdjust
-
         if self.chamberTemp == DEFAULT_TEMP:
             return None
         else:
             return self.chamberTemp
-
-#TODO
-#    # returns controller's internal temperature
-#    def getInternalTemp(self):
-#        if self.internalTemp == DEFAULT_TEMP:
-#            return None
-#        else:
-#            return round(float(self.internalTemp),1)
-# END TODO
 
     def isTiltControlled(self):
         if self.tilt == None:
@@ -273,89 +216,11 @@ class Chamber(threading.Thread):
     def timeOfData(self):
         return self.timeData
 
-    def _controlheatingcooling(self, _relay, _led, _bool):
-        logger.debug("_controlheatingcooling")
+    def getController(self):
+        return self.control
 
-        curTime = datetime.datetime.now()
-        sTime = curTime.strftime("%d.%m.%Y %H:%M:%S")
-
-        if _relay == PIN_HEAT_RELAY and self.bHeatOn == True and _bool == False:
-            self.heatEndTime = curTime
-            self.bHeatOn = False
-
-        elif _relay == PIN_HEAT_RELAY and self.bHeatOn == False and _bool == True:
-            self._controlheatingcooling(PIN_COOL_RELAY, PIN_COOL_LED, False)
-
-            if curTime < self.heatEndTime + datetime.timedelta(seconds=self.onDelay):
-                logger.debug("("+sTime+"): on delay has not expired: "+(self.heatEndTime + datetime.timedelta(seconds=self.onDelay)).strftime("%d.%m.%Y %H:%M:%S"))
-                return
-
-            self.bHeatOn = True 
-        
-        elif _relay == PIN_COOL_RELAY and self.bCoolOn == True and _bool == False:
-            self.coolEndTime = curTime
-            self.bCoolOn = False
-
-        elif _relay == PIN_COOL_RELAY and self.bCoolOn == False and _bool == True:
-            self._controlheatingcooling(PIN_HEAT_RELAY, PIN_HEAT_LED, False)
-
-            if curTime < self.coolEndTime + datetime.timedelta(seconds=self.onDelay):
-                logger.debug("("+sTime+"): on delay has not expired: "+(self.coolEndTime + datetime.timedelta(seconds=self.onDelay)).strftime("%d.%m.%Y %H:%M:%S"))
-                return
-
-            self.bCoolOn = True
-
-        if _bool:
-            logger.debug("("+sTime+"): Turn ON relay: "+str(_relay))
-            GPIO.output(_relay, GPIO.LOW) # Turn relay ON
-            GPIO.output(_led, GPIO.HIGH) # Turn led ON
-        else:
-            logger.debug("("+sTime+"): Turn relay OFF: "+str(_relay))
-            GPIO.output(_relay, GPIO.HIGH) # Turn relay OFF
-            GPIO.output(_led, GPIO.LOW) # Turn led OFF
-
-    def _avgtemp(self, id, _num):
-        logger.debug("_avgtemp")
-
-        interval = 0
-        _temp = 0.0
-
-        for i in range (0, _num):
-            t = self._gettemp(id)
-            if t != DEFAULT_TEMP:
-                _temp += t
-                interval += 1
-
-        logger.debug("_avgtemp: "+(str)(_temp/interval))
-        return _temp/interval
-
-
-    def _gettemp(self, id):
-        logger.debug("_gettemp")
-        try:
-            mytemp = ''
-            filename = 'w1_slave'
-            f = open('/sys/bus/w1/devices/' + id + '/' + filename, 'r')
-            line = f.readline() # read 1st line
-            crc = line.rsplit(' ',1)
-            crc = crc[1].replace('\n', '')
-            if crc=='YES':
-                line = f.readline() # read 2nd line
-                mytemp = line.rsplit('t=',1)
-            else:
-                mytemp = DEFAULT_TEMP
-            f.close()
-            
-            self.timeData = datetime.datetime.now()
-
-            _temp = (float)(mytemp[1])/1000
-
-            logger.debug("_gettemp: "+(str)(_temp))
-
-            return _temp
-
-        except:
-            return DEFAULT_TEMP
+    def paused(self):
+        return self.paused
 
     # Read class parameters from configuration ini file.
     # Format:
@@ -364,7 +229,8 @@ class Chamber(threading.Thread):
     # Temps = 18,21,0
     # Dates = 26/03/2019 12:00:00,28/09/2019 13:00:00,14/10/2019 14:00:00,20/04/2020 14:00:00
     # BeerTemperatureBuffer = 0.2
-    # ChamberScaleBuffer = 5.0    
+    # ChamberScaleBuffer = 5.0
+    
     def _readConf(self):
 
         try:
@@ -444,36 +310,8 @@ class Chamber(threading.Thread):
                     self.bufferChamberScale = DEFAULT_BUFFER_CHAMBER_SCALE
                     logger.warning("Invalid chamber scale buffer in configuration; using default: "+str(self.bufferChamberScale))
 
-                try:
-                    if config["BeerTempAdjust"] != "":
-                        self.beerTAdjust = float(config.get("BeerTempAdjust"))
-                    else:
-                        raise Exception
-                except:
-                    self.beerTAdjust = 0.0
-                    logger.warning("Invalid BeerTempAdjust in configuration; using default: "+str(self.beerTAdjust))
-
-                try:
-                    if config["ChamberTempAdjust"] != "":
-                        self.chamberTAdjust = float(config.get("ChamberTempAdjust"))
-                    else:
-                        raise Exception
-                except:
-                    self.chamberTAdjust = 0.0
-                    logger.warning("Invalid ChamberTempAdjust in configuration; using default: "+str(self.chamberTAdjust))
-
-                try:
-                    if config["OnDelay"] != "" and int(config["OnDelay"]) >= 0:
-                        self.onDelay = int(config.get("OnDelay"))*60
-                    else:
-                        raise Exception
-                except:
-                    self.onDelay = DEFAULT_ON_DELAY
-                    logger.warning("Invalid OnDelay in configuration; using default: "+str(self.onDelay)+" seconds")
-
         except:
             logger.warning("Problem read from configuration file: "+CONFIGFILE)
        
             
         logger.debug("Chamber config updated")
-

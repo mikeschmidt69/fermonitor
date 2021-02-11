@@ -33,7 +33,6 @@ from flask import Flask, render_template
 import threading
 
 import chamber
-import controller
 import interface
 import tilt
 import brewfather
@@ -197,7 +196,6 @@ def main():
                 logger.debug("Starting Tilt monitoring: " + sTiltColor)
                 cTilt = tilt.Tilt(sTiltColor)
                 cTilt.start()
-                time.sleep(10)
 
         else:
             cTilt = None
@@ -207,31 +205,23 @@ def main():
         else:
             cChamber.setTilt(None)
 
-        if not cChamber.paused:
-            target = cChamber.getTargetTemp()
-            tempBeer = cChamber.getBeerTemp()
-            tempBeerWire = cChamber.getWireBeerTemp()
-            tempChamber = cChamber.getChamberTemp()
-            timeBeer = cChamber.timeOfData()
-            if cTilt is not None:
-                datatime = cTilt.timeOfData()
-                if datatime is not None and datatime > datetime.datetime.now() - datetime.timedelta(minutes=5):
-                    gravity = cTilt.getGravity()
-            else:
-                gravity = None
-
-            cBrewfather.setData(tempBeer, tempChamber, gravity)        
-
-            cInterface.setData( target, tempBeer, gravity, tempBeerWire, tempChamber)
-
+        target = cChamber.getTargetTemp()
+        tempBeer = cChamber.getBeerTemp()
+        tempBeerWire = cChamber.getWireBeerTemp()
+        tempChamber = cChamber.getChamberTemp()
+        timeBeer = cChamber.timeOfData()
+        if cTilt is not None:
+            datatime = cTilt.timeOfData()
+            if datatime is not None and datatime > datetime.datetime.now() - datetime.timedelta(minutes=5):
+                gravity = cTilt.getGravity()
         else:
-            timeBeer = None
-            target = None
-            tempBeer = None
-            tempChamber = None
-            tempBeerWire = None
+            gravity = None
 
-        time.sleep(1)
+        cBrewfather.setData(tempBeer, tempChamber, gravity)        
+
+        cInterface.setData( target, tempBeer, gravity, tempBeerWire, tempChamber)
+
+        time.sleep(0.5)
 
 app = Flask(__name__)
 @app.route("/", methods=["GET","POST"])
@@ -280,32 +270,10 @@ def chamber_html():
         if cChamber.timeOfData() is not None:
             data['timeBeer'] = cChamber.timeOfData().strftime("%d.%m.%Y %H:%M:%S")
         data['tiltControlled'] = str(cChamber.isTiltControlled())
+        data['heating'] = str(cChamber.isHeating())
+        data['cooling'] = str(cChamber.isCooling())
 
     return render_template('chamber.html', data=data)
-
-@app.route("/controller", methods=["GET","POST"])
-def controller_html():
-    data = {}
-
-    control = None
-
-    if cChamber is not None:
-        control = cChamber.getController()
-
-    if control is not None:
-        if control.timeOfData() is not None:
-            data['timeData'] = control.timeOfData().strftime("%d.%m.%Y %H:%M:%S")
-        if control.getBeerTemp() is not None:
-            data['tempBeer'] = str(round(float(control.getBeerTemp()),1))
-        if control.getChamberTemp() is not None:
-            data['tempChamber'] = str(round(float(control.getChamberTemp()),1))
-        if control.getInternalTemp() is not None:
-            data['tempInternal'] = str(round(float(control.getInternalTemp()),1))
-        data['heating'] = str(control.isHeating())
-        data['cooling'] = str(control.isCooling())
-        data['validData'] = str(control.isDataValid())
-
-    return render_template('controller.html', data=data)
 
 @app.route("/brewfather", methods=["GET","POST"])
 def brewfather_html():

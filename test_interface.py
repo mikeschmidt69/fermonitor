@@ -20,25 +20,25 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import sys
-import datetime
-import time
-import os
+# import sys
+# import datetime
+# import time
+# import os
 import random
 import logging
 from setup_logger import logger
-from distutils.util import strtobool
+# from distutils.util import strtobool
 
 import interface
 
 logger = logging.getLogger('TEST_INTERFACE')
 logger.setLevel(logging.INFO)
 
-ui = interface.Interface("Test Interface")
 
 ################################################################
 def main():
 
+    ui = interface.Interface("Test Interface")
     ui.setLogLevel(logging.DEBUG)  
     ui.start()
 

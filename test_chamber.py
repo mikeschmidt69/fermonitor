@@ -31,17 +31,21 @@ from distutils.util import strtobool
 import chamber
 
 logger = logging.getLogger('TEST_CHAMBER')
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
-fridge = chamber.Chamber(None)
 
 ################################################################
 def main():
     
+    testTime = datetime.datetime.now()
+
+    fridge = chamber.Chamber(None)
+    
     fridge.start()
 
-    time.sleep(240)
-
+    while testTime > datetime.datetime.now() - datetime.timedelta(seconds=120):
+        time.sleep(1)
+    
     fridge.stop()
 
 
@@ -52,6 +56,6 @@ if __name__ == "__main__": #dont run this as a module
 
     except KeyboardInterrupt:
         fridge = None
-        print("...Chamber Test Stopped")
+        logger.info("Test Stopped")
  
     

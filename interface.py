@@ -51,7 +51,7 @@ class Interface (threading.Thread):
         self.pir_state = 0
         self.bStopRequest = False
 
-        self.iDisplay = 1
+        self.iDisplay = 0
         
         self.sScreen1Row1 = _sWelcome
         self.sScreen1Row2 = " Target:        "
@@ -61,7 +61,6 @@ class Interface (threading.Thread):
         self.sScreen3Row2 = "Chamber:        "
         self.lcdOffTime = datetime.datetime.now() 
         self.displaySwitchTime = datetime.datetime.now() + datetime.timedelta(seconds=DISPLAY_ON_SEC)
-        self.dataTime = datetime.datetime.now() 
 
         # Initialize the GPIO Pins
         os.system('modprobe w1-gpio') # Turns on the GPIO module
@@ -84,16 +83,17 @@ class Interface (threading.Thread):
             self.bLcdOn = True
             self.lcd.lcd_display_string(_sWelcome,1)
             self.lcdOffTime = datetime.datetime.now() + datetime.timedelta(seconds=LCD_ON_SEC)
-            logger.debug("1 - LCD is on to show welcome")
+            self.displaySwitchTime = datetime.datetime.now() + datetime.timedelta(seconds=DISPLAY_ON_SEC)
+            logger.debug("LCD is on to show welcome")
 
         else:
             self.lcd.backlight(0)
             self.bLcdOn = False
-        
 
-        # Loop until PIR output is 0
-        while GPIO.input(PIN_PIR) == 1:
-            self.pir_state = 0
+        self.dataTime = datetime.datetime.now() 
+        
+        logger.debug("finished init")
+
         
     # Starts the background thread
     def run(self):
@@ -105,23 +105,17 @@ class Interface (threading.Thread):
                 self.clearScreen()
                 logger.debug("No data sent to interface within 15s, clearing data shown")
 
-            # Set which of the displays should be shown
-            if curTime > self.displaySwitchTime:
-                self.iDisplay = self.iDisplay + 1
-                if self.iDisplay > NUM_DISPLAYS:
-                    self.iDisplay = 1
-
-                self.displaySwitchTime = curTime + datetime.timedelta(seconds=DISPLAY_ON_SEC)
-                self.lcd.lcd_clear()
-
             self.pir_state = GPIO.input(PIN_PIR)
 
             # Motion detected
             if self.pir_state == 1:
-
-                # Display should be turned on if not already on
-                self.lcd.backlight(1)
-                self.bLcdOn = True
+                # Display has been off and should be turned on
+                # Displayed screen should be set to 1 and screenswitch time reset
+                if self.bLcdOn == False:
+                    self.lcd.backlight(1)
+                    self.bLcdOn = True
+                    self.iDisplay = 1
+                    self.displaySwitchTime = curTime + datetime.timedelta(seconds=DISPLAY_ON_SEC)
                
                 # Reset timeout of display when motion is detected
                 self.lcdOffTime = curTime + datetime.timedelta(seconds=LCD_ON_SEC)
@@ -156,7 +150,18 @@ class Interface (threading.Thread):
 
                 # If display is ON show latest values
                 if self.bLcdOn:
-                    if self.iDisplay == 1:
+                    # Set which of the displays should be shown
+                    if curTime > self.displaySwitchTime:
+                        self.iDisplay = self.iDisplay + 1
+                        if self.iDisplay > NUM_DISPLAYS:
+                            self.iDisplay = 1
+
+                        self.displaySwitchTime = curTime + datetime.timedelta(seconds=DISPLAY_ON_SEC)
+                        self.lcd.lcd_clear()
+
+                    if self.iDisplay == 0:
+                        logger.debug("Displaying welcome")
+                    elif self.iDisplay == 1:
                         logger.debug("Displaying screen 1")
                         self.lcd.lcd_display_string(self.sScreen1Row1,1)
                         self.lcd.lcd_display_string(self.sScreen1Row2,2)
@@ -195,7 +200,7 @@ class Interface (threading.Thread):
                 logger.debug(self.sScreen3Row1)
                 logger.debug(self.sScreen3Row2)
             
-            time.sleep(0.5)
+            time.sleep(0.2)
 
     def __del__(self):
         self.lcd.lcd_clear()

@@ -33,6 +33,12 @@
         {% if data.tiltControlled %}
         <tr><td>Tilt Controlled: </td><td>{{ data.tiltControlled }}</td></tr>
         {% endif %}
+        {% if data.heating %}
+        <tr><td>Heating ON: </td><td>{{ data.heating }}</td></tr>
+        {% endif %}
+        {% if data.cooling %}
+        <tr><td>Cooling ON: </td><td>{{ data.cooling }}</td></tr>
+        {% endif %}
     </table>
 </body>
 </html>
