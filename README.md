@@ -14,6 +14,8 @@ interface.py controls LCD to show temperatures and specific gravity and a motion
 
 I run the app by "sudo python3 fermonitor.py &> output.log &" or including similar line to /etc/rc.local to start at boot-up of RPi. I then monitor the log using "tail -f output.log".
 
+I can monitor the fermentation on BrewFather but I also use port-forwarding on home router to provide remote access to the Flask web interface that provides more insight on current state of controller. Port-forwarding also allows SSH access to the RPi for editing .ini files or in worse case rebooting RPi.
+
 Most of the files are configured with their own .ini
 fermonitor.py -> fermonitor.ini
 - message level
