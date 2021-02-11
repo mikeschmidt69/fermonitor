@@ -1,7 +1,7 @@
 # fermonitor
-Homebrew Fermentation Controller 
+Homebrew Fermentation Controller
 
-Setup includes Raspberry Pi with 2 1-wire temperature sensor probes (beer, chamber), 2 relays switches for powering cooling device (fridge) and heating device (heating pad), 2 LED, 2x16 LCD and motion sensor for turning on/off display.
+Setup includes Raspberry Pi with 2 1-wire temperature sensor probes (beer, chamber), 2 relays switches for powering cooling device (fridge) and heating device (heating pad), 2 LED, 2x16 LCD and motion sensor for turning on/off display. Look at architecture.pdf for overview.
 
 fermonitor.py is the main app and starts the various support threads (chamber, tilt, brewfather and interface). Implementation responsible for collecting data from various chamber and passing to brewfather class for updating remote service and to interface for displaying to LCD. Implementation also provides web interface using Flask (xxx.xxx.xxx.xxx:5000)
 
