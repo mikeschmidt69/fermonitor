@@ -29,13 +29,19 @@ import time
 import os
 import bluetooth._bluetooth as bluez
 import threading
+
 import logging
+
 import configparser
-from setup_logger import logger
 from distutils.util import strtobool
 
-logger = logging.getLogger('TILT')
+logger = logging.getLogger('FERMONITOR.TILT')
 logger.setLevel(logging.INFO)
+
+COLOR = "COLOR"
+TEMP = "TEMP"
+SG = "SG"
+TIME = "TIME"
 
 RED = "RED"
 GREEN = "GREEN"
@@ -49,8 +55,7 @@ PINK = "PINK"
 DEFAULT_BT_DEVICE_ID = 0
 MINIMUM_INTERVAL = 10
 CONFIGFILE = "tilt.ini"
-
-DATA_HISTORY_SIZE = 100
+CONFIGSECTION = "TILT"
 
 DATETIME_FORMAT = "%d.%m.%Y %H:%M:%S"
 
@@ -78,29 +83,15 @@ class Tilt (threading.Thread):
 
 
     # Constructor for class
-    # Most variables are specific to instance of class so multiple Tilt devices can be used at the same time
-    # configFile is ini configuration file with following format
-    # [Tilt]
-    # Color = BLACK
-    # UpdateIntervalSeconds = 60
-    # BluetoothDeviceId = 0
-    #
-    def __init__(self, _color):
+    def __init__(self):
         threading.Thread.__init__(self)
     
-        self.color = BLACK # color of tilt that is being used
-
-        if validColor(_color):
-            self.color = _color
-        else:
-            raise Exception("Invalid Tilt color: "+color) 
-
         self.bluetoothDeviceId = DEFAULT_BT_DEVICE_ID
         self.interval = MINIMUM_INTERVAL
 
         self.lastUpdateTime = datetime.now()  - timedelta(seconds=self.interval) # last time the tilt was read
      
-        self.data = []
+        self.data = {}
         self.stopThread = True
         self._readConf()
 
@@ -108,51 +99,32 @@ class Tilt (threading.Thread):
     # Starts background thread that updates the data from Tilt hydrometer (temp, specific gravity) on regular basis.
     # This is not a realtime operation so thread sleeps for 5s after each iteration
     def run(self):
-        logger.info("Starting Tilt Monitoring: "+self.color)
+        logger.info("Starting Tilt Monitoring")
         self.stopThread = False
         while self.stopThread != True:
             self._readConf()
             self._update()    # calls method that updates data from Tilt if update time interval has lapsed
             time.sleep(MINIMUM_INTERVAL)
-        logger.info("Tilt Monitoring:"+self.color+" Stopped.")
-
-
-    # returns time when date and specific gravity were updated from Tilt
-    def timeOfData(self):
-        if len(self.data) > 0:
-            return datetime.strptime(self.data[len(self.data)-1]['TIME'], DATETIME_FORMAT)
-        return None
-
-
-    # Returns last read temperature reading from Tilt
-    def getTemp(self):
-        if len(self.data) > 0:
-            return float(self.data[len(self.data)-1]['TEMP'])
-        return None
-
-
-    # Returns last read specific gravity reading from Tilt
-    def getGravity(self):
-        if len(self.data) > 0:
-            return float(self.data[len(self.data)-1]['SG'])
-        return None
-
-
-    # Returns color of tilt
-    def getColor(self):
-        return self.color
-        
-
-    # sets interval that data is read from Tilt hydrometer
-    def setInterval(self, _interval):
-        if _interval > MINIMUM_INTERVAL:
-            self.interval = _interval
+        logger.info("Tilt Monitoring Stopped.")
 
 
     # stops the background thread updating data coming from configured Tilt
     def stop(self):
         self.stopThread = True
    
+    
+    # return a copy of the data to be used outside module
+    def getAllData(self):
+        return self.data.copy()
+
+
+    # return a copy of the data for a specific color tilt
+    def getData(self, _color):
+        if self.data.get(_color) != None and len(self.data[_color]) > 0:
+            return self.data[_color].copy()
+        else:
+            return None
+
  
     # Internal method for checking if the update time interval has lapsed and new data should be read from Tilt
     def _update(self):
@@ -182,9 +154,9 @@ class Tilt (threading.Thread):
         blescan.hci_le_set_scan_parameters(sock)
         blescan.hci_enable_le_scan(sock)
 
-        gotData = 0
+        _data = {}
     
-        while (gotData == 0 and curTime < timeout):
+        while (curTime < timeout):
             returnedList = blescan.parse_events(sock, 10)
 
             for beacon in returnedList:  # returnedList is a list datatype of string datatypes seperated by commas (,)
@@ -194,45 +166,30 @@ class Tilt (threading.Thread):
 
                 if uuid in Tilt.color.keys():
                     logger.debug("Found Tilt hydrometer:" + uuid)
-                    gotData = 1
+
                     foundColor = Tilt.color.get(uuid)
                     foundTemp = float(int(output[2],16)-32)*5/9
                     foundSG = float(int(output[3],16)/1000)
 
                     logger.debug("Found "+foundColor+" Tilt: T/"+str(foundTemp)+", SG/"+str(foundSG))
                     
-                    if foundColor != self.color:
-                        logger.debug("Skipping data; wrong color Tilt. Looking for: " + self.color)
-                        gotData = 0 # wrong tilt
-                    elif  foundTemp > 200:  # first reading always showed temperature of 537.2C and SG 1.0
+                    if  foundTemp > 200:  # first reading always showed temperature of 537.2C and SG 1.0
                         logger.debug("Skipping initial datasets as temp and SG are always wrong")
-                        timeout = curTime + timedelta(minutes=1) # extend timeout looking for valid data from tilt
-                        gotData = 0 # forces to continue reading from tilt looking for valid data
                     else:
-                        self._storeData(foundTemp, foundSG, curTime)
-                        logger.info(self.color+" - "+curTime.strftime(DATETIME_FORMAT)+" - T:"+str(round(float(foundTemp),1))+" - SG:"+"{:5.3f}".format(round(float(foundSG),3)))
+                        _data[foundColor] = {COLOR: foundColor, TEMP: round(float(foundTemp),1), SG: round(float(foundSG),3), TIME:curTime}
+                        logger.debug(foundColor+" - "+curTime.strftime(DATETIME_FORMAT)+" - T:"+str(round(float(foundTemp),1))+" - SG:"+"{:5.3f}".format(round(float(foundSG),3)))
 
             curTime = datetime.now()
 
         # Did not collect data before timeout; set data as invalid
-        if gotData == 0:
+        if len(_data) == 0:
             logger.debug("Timed out collecting data from Tilt")
+        
+        self.data = _data
 
         blescan.hci_disable_le_scan(sock)
         return True
-
-
-    def _storeData(self, _temp, _sg, _time):
-        while len(self.data) >= DATA_HISTORY_SIZE:
-            self.data.pop(0)
-
-        self.data.append({'TEMP': str(round(float(_temp),1)), 'SG': "{:5.3f}".format(round(float(_sg),3)), 'TIME':_time.strftime(DATETIME_FORMAT)})
-
-
-    # return a copy of the data to be used outside module
-    def getData(self):
-        return self.data.copy()
-
+        
 
     def _readConf(self):
     
@@ -247,8 +204,8 @@ class Tilt (threading.Thread):
                 logger.debug("Reading Tilt config: " + CONFIGFILE)
                 ini.read(CONFIGFILE)
 
-                if self.color in ini:
-                    config = ini[self.color]
+                if CONFIGSECTION in ini:
+                    config = ini[CONFIGSECTION]
 
                     try:
                         if config["UpdateIntervalSeconds"] != "" and int(config["UpdateIntervalSeconds"]) >= MINIMUM_INTERVAL:
@@ -282,15 +239,14 @@ class Tilt (threading.Thread):
                     except KeyError:
                         logger.setLevel(logging.INFO)
                 else:
-                    logger.error("["+self.color+"] section not found in ini file: " + CONFIGFILE)
+                    logger.error("["+CONFIGSECTION+"] section not found in ini file: " + CONFIGFILE)
             except:
                 pass
     
         if bDefaultInterval or bDefaultBtDeviceId:
             logger.warning("Problem read from configuration file: \""+CONFIGFILE+ \
                 "\". Using some default values[**] for Tilt configuration. It could take a minute for updated values in config file to be used.")
-            sConf = "Color = "+self.color
-            sConf = sConf + "\nUpdateIntervalSeconds = "+str(self.interval)
+            sConf = "UpdateIntervalSeconds = "+str(self.interval)
             if bDefaultInterval:
                 sConf = sConf + "**"
             sConf = sConf + "\nBluetoothDeviceId = "+str(self.bluetoothDeviceId)

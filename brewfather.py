@@ -28,11 +28,10 @@ import time
 import os
 import threading
 import logging
-from setup_logger import logger
 import configparser
 from distutils.util import strtobool
 
-logger = logging.getLogger('BREWFATHER')
+logger = logging.getLogger('FERMONITOR.BREWFATHER')
 logger.setLevel(logging.INFO)
 
 MINIMUM_INTERVAL = 900 # minimum number of seconds the BrewFather.app can be updated (i.e. 15min)
@@ -69,6 +68,7 @@ class BrewFather (threading.Thread):
             "beer": ""
         }
         self.jsondump = ""
+        self.prevjsondump = ""
 
         # Keeps track of last time BrewFather was updated to know when it can be updated again
         self.lastUpdateTime = datetime.datetime.now() - datetime.timedelta(seconds=self.interval) # last time the tilt was read
@@ -108,9 +108,14 @@ class BrewFather (threading.Thread):
 
         if _beer_temp != None or _aux_temp != None or _gravity != None:
             self.bNewData = True
+        self.jsondump = json.dumps(self.postdata).encode('utf8')
+
             
-    def getLastJSON(self):
+    def getNextJSON(self):
         return self.jsondump
+
+    def getLastJSON(self):
+        return self.prevjsondump
 
     def getLastRequestTime(self):
         return self.lastUpdateTime
@@ -129,16 +134,18 @@ class BrewFather (threading.Thread):
             self.bNewData:
             
             try:
-                self.jsondump = json.dumps(self.postdata).encode('utf8')
-                req = request.Request(self.sURL, data=self.jsondump, headers={'content-type': 'application/json'})
-                response = request.urlopen(req)
+                self.prevjsondump = self.jsondump
                 self.bNewData = False
+                
+                req = request.Request(self.sURL, data=self.prevjsondump, headers={'content-type': 'application/json'})
+                response = request.urlopen(req)
+
                 self.lastUpdateTime = datetime.datetime.now()
-                logger.info("BrewFather: " + self.postdata["temp"] +"C, " + self.postdata["gravity"] + "SG, " + self.postdata["aux_temp"] +"C, " + self.lastUpdateTime.strftime("%d.%m.%Y %H:%M:%S"))
+                logger.debug("Update BrewFather JSON: " + str(self.getLastJSON()))
             except:
                 logger.error("Exception posting to Brewfather: "+str(self.getLastJSON()))
         else:
-            logger.debug("Update parameters:\nbUpdate = "+str(self.bUpdate)+"\nsUrl = "+self.sURL+"\npostdata.Name = "+self.postdata["name"] + \
+            logger.debug("No update - parameters:\nbUpdate = "+str(self.bUpdate)+"\nsUrl = "+self.sURL+"\npostdata.Name = "+self.postdata["name"] + \
                 "\npostdata.temp = "+self.postdata["temp"]+"\npostdata.gravity = "+self.postdata["gravity"] + "\npostdata.aux_temp = "+self.postdata["aux_temp"] + \
                         "\nupdateTime = "+updateTime.strftime("%d.%m.%Y %H:%M:%S") + \
                             "\nlastUpdateTime = "+self.lastUpdateTime.strftime("%d.%m.%Y %H:%M:%S") + \

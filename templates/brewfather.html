@@ -6,14 +6,17 @@
 </head>
 <body>
     <h1>Fermonitor - Brewfather</h1>
-    <a href="/">Home</a> - <a href="/tilt">Tilt</a> - <a href="/chamber">Chamber</a> - <a href="/controller">Controller</a> - <a href="/brewfather">Brewfather</a>
+    <a href="/">Chamber</a> - <a href="/tilt">Tilt</a> - <a href="/brewfather">Brewfather</a>
     <hr />
     <table>
         {% if timeData %}
         <tr><td>Time of last update: </td><td>{{ timeData }}</td></tr>
         {% endif %}
-        {% if data %}
-        <tr><td>JSON: </td><td>{{ data }}</td></tr>
+        {% if lastdata %}
+        <tr><td>Last JSON: </td><td>{{ lastdata }}</td></tr>
+        {% endif %}
+        {% if nextdata %}
+        <tr><td>Next JSON: </td><td>{{ nextdata }}</td></tr>
         {% endif %}
     </table>
 </body>

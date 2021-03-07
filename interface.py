@@ -27,9 +27,8 @@ import datetime
 import logging
 import RPi.GPIO as GPIO
 import I2C_LCD_driver
-from setup_logger import logger
 
-logger = logging.getLogger('INTERFACE')
+logger = logging.getLogger('FERMONITOR.INTERFACE')
 logger.setLevel(logging.INFO)
 
 # Set a variable to hold the GPIO Pin identity
@@ -37,8 +36,6 @@ PIN_PIR = 17 # motion pin
 
 LCD_ON_SEC = 30
 DISPLAY_ON_SEC = 5
-NUM_DISPLAYS = 3
-
 
 # Handles communication with Arduino over serial interface to read wired temperaturess and turn on/off heating and cooling devices
 class Interface (threading.Thread):
@@ -54,16 +51,14 @@ class Interface (threading.Thread):
         self.iDisplay = 0
         
         self.sScreen1Row1 = _sWelcome
-        self.sScreen1Row2 = " Target:        "
-        self.sScreen2Row1 = "     SG:        "
-        self.sScreen2Row2 = "   Beer:        "
-        self.sScreen3Row1 = "(W)Beer:        "
-        self.sScreen3Row2 = "Chamber:        "
+        self.clearScreen()
+        
         self.lcdOffTime = datetime.datetime.now() 
         self.displaySwitchTime = datetime.datetime.now() + datetime.timedelta(seconds=DISPLAY_ON_SEC)
+        self.num_displays = 3
 
         # Initialize the GPIO Pins
-        os.system('modprobe w1-gpio') # Turns on the GPIO module
+#        os.system('modprobe w1-gpio') # Turns on the GPIO module
 
         # Set the GPIO naming conventions
         GPIO.setmode (GPIO.BCM)
@@ -153,7 +148,7 @@ class Interface (threading.Thread):
                     # Set which of the displays should be shown
                     if curTime > self.displaySwitchTime:
                         self.iDisplay = self.iDisplay + 1
-                        if self.iDisplay > NUM_DISPLAYS:
+                        if self.iDisplay > self.num_displays:
                             self.iDisplay = 1
 
                         self.displaySwitchTime = curTime + datetime.timedelta(seconds=DISPLAY_ON_SEC)
@@ -227,27 +222,43 @@ class Interface (threading.Thread):
         else:
             logger.setLevel(logging.INFO)
 
-    def setData(self, _target, _beerT, _sg, _beerWireT, _chamberT):
+    def setData(self, _targetT, _chamberBeerT, _chamberT, _sg, _tiltBeerT,  _bTiltControlled):
         self.clearScreen()
 
-        if _target is not None:
-            self.sScreen1Row2 = " Target:{:5.1f}C  ".format(round(float(_target),1))
-        if _sg is not None:
-            self.sScreen2Row1 = "     SG:  {:5.3f} ".format(round(float(_sg),3))
-        if _beerT is not None:
-            self.sScreen2Row2 = "   Beer:{:5.1f}C  ".format(round(float(_beerT),1))
-        if _beerWireT is not None:
-            self.sScreen3Row1 = "(W)Beer:{:5.1f}C  ".format(round(float(_beerWireT),1))
+        if _targetT is not None:
+            self.sScreen1Row2 = " Target:{:5.1f}C  ".format(round(float(_targetT),1))
+
+        if _chamberBeerT is not None:
+            self.sScreen2Row1 = "   Beer:{:5.1f}C ".format(round(float(_chamberBeerT),1))
+            if not _bTiltControlled:
+                self.sScreen2Row1 += "*"
+            else:
+                self.sScreen2Row1 += " "
         if _chamberT is not None:
-            self.sScreen3Row2 = "Chamber:{:5.1f}C  ".format(round(float(_chamberT),1))
+            self.sScreen2Row2 = "Chamber:{:5.1f}C  ".format(round(float(_chamberT),1))
+
+        if _tiltBeerT is not None:
+            self.sScreen3Row1 = "Tilt  T:{:5.1f}C ".format(round(float(_tiltBeerT),1))
+            if _bTiltControlled:
+                self.sScreen3Row1 += "*"
+            else:
+                self.sScreen3Row1 += " "
+        if _sg is not None:
+            self.sScreen3Row2 = "     SG:  {:5.3f} ".format(round(float(_sg),3))
+
+        if _sg is None and _tiltBeerT is None:
+            self.num_displays = 2
+
+        else:
+            self.num_displays = 3
 
         self.dataTime = datetime.datetime.now() 
 
     def clearScreen(self):
         # self.sScreen1Row1 shows the welcome message passed to interface class
         self.sScreen1Row2 = " Target:        "
-        self.sScreen2Row1 = "     SG:        "
-        self.sScreen2Row2 = "   Beer:        "
-        self.sScreen3Row1 = "(W)Beer:        "
-        self.sScreen3Row2 = "Chamber:        "
+        self.sScreen2Row1 = "   Beer:        "
+        self.sScreen2Row2 = "Chamber:        "
+        self.sScreen3Row1 = "Tilt  T:        "
+        self.sScreen3Row2 = "     SG:        "
 

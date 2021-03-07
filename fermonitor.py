@@ -24,33 +24,23 @@ import sys
 import datetime
 import time
 import os
-import logging
-from setup_logger import logger
-from distutils.util import strtobool
 import configparser
-
-from flask import Flask, render_template                                                         
 import threading
+import logging
+from logging.handlers import TimedRotatingFileHandler
+from distutils.util import strtobool
+from flask import Flask, render_template                                                         
+from influxdb import InfluxDBClient
 
 import chamber
 import interface
 import tilt
 import brewfather
 
-logger = logging.getLogger('FERMONITOR')
-logger.setLevel(logging.INFO)
-
 CONFIGFILE = "fermonitor.ini"
 
 CONTROL_TILT = 0
 CONTROL_WIRE = 1
-
-timeBeer = None
-target = None
-tempBeer = None
-tempChamber = None
-tempBeerWire = None
-gravity = None
 
 cTilt = None
 cChamber = None
@@ -59,11 +49,10 @@ cBrewfather = None
 def read_settings():
     global sTiltColor
     global chamberControlTemp
-    global bUseTilt
     global logLevel
 
+    sTiltColor = None
     chamberControlTemp = CONTROL_WIRE
-    bUseTilt = False
     logLevel = logging.INFO
     
     logger.debug("Reading configfile: "+ CONFIGFILE)
@@ -105,7 +94,7 @@ def read_settings():
             raise Exception
     except:
         logger.warning("No color specified for Tilt. Tilt not used.")
-        sTiltColor = ""
+        sTiltColor = None
 
     logger.debug("Tilt color: "+ sTiltColor)    
 
@@ -150,17 +139,10 @@ def read_settings():
 ################################################################
 def main():
     
-    global timeBeer
-    global target
-    global tempBeer
-    global tempChamber
-    global tempBeerWire
-    global gravity
     global cTilt
     global cChamber
     global cBrewfather
-
-
+    
     logger.info("Starting Fermonitor...")
 
     read_settings()
@@ -169,15 +151,20 @@ def main():
     cInterface.setLogLevel(logLevel)
     cInterface.start()
 
-    cChamber = chamber.Chamber(None)
-    cChamber.start()
+    cTilt = tilt.Tilt()
+    cTilt.start()
 
-    cTilt = None
+    cChamber = chamber.Chamber(cTilt)
+    cChamber.start()
 
     # Start BrewFather thread to store temp and gravity
     logger.debug("Starting BrewFather Thread")
     cBrewfather = brewfather.BrewFather()
     cBrewfather.start()
+
+    client = InfluxDBClient(host='localhost', port=8086)
+    client.create_database('brewing')
+    client.switch_database('brewing')
 
     # Main loop for reading and logging data as well as controllng fermentor
     while True:
@@ -185,114 +172,138 @@ def main():
         read_settings()
         cInterface.setLogLevel(logLevel)
 
-        # Handle Tilt
-        
-        if sTiltColor != "":
-            if (cTilt is not None) and (cTilt.getColor() != sTiltColor):
-                logger.debug("Tilt color changed: stopping Tilt: " + cTilt.getColor())
-                cTilt = None
-
-            if cTilt is None:
-                logger.debug("Starting Tilt monitoring: " + sTiltColor)
-                cTilt = tilt.Tilt(sTiltColor)
-                cTilt.start()
-
+        if chamberControlTemp == CONTROL_TILT and sTiltColor is not None:
+            cChamber.setTiltColor(sTiltColor)
         else:
-            cTilt = None
+            cChamber.setTiltColor(None)
 
-        if chamberControlTemp == CONTROL_TILT:
-            cChamber.setTilt(cTilt)
-        else:
-            cChamber.setTilt(None)
+        _tBeerT = None
+        _tBeerSG = None
+        _cBeerT = cChamber.getBeerTemp()
+        _cWireBeerT = cChamber.getWiredBeerTemp()
+        _cChamberT = cChamber.getChamberTemp()
+        _cTargetT = cChamber.getTargetTemp()
+        _cTiltControlled = cChamber.isTiltControlled()
+        _cHeating = cChamber.isHeating()
+        _cCooling = cChamber.isCooling()
+        _cTimeData = cChamber.timeOfData()
 
-        target = cChamber.getTargetTemp()
-        tempBeer = cChamber.getBeerTemp()
-        tempBeerWire = cChamber.getWireBeerTemp()
-        tempChamber = cChamber.getChamberTemp()
-        timeBeer = cChamber.timeOfData()
-        if cTilt is not None:
-            datatime = cTilt.timeOfData()
-            if datatime is not None and datatime > datetime.datetime.now() - datetime.timedelta(minutes=5):
-                gravity = cTilt.getGravity()
-        else:
-            gravity = None
+        if sTiltColor is not None:
+            _tiltdata = {}
+            _tiltdata = cTilt.getData(sTiltColor)
+            if _tiltdata is not None:
+                _tBeerSG = _tiltdata.get(tilt.SG)
 
-        cBrewfather.setData(tempBeer, tempChamber, gravity)        
+        cBrewfather.setData(_cBeerT, _cChamberT, _tBeerSG)        
 
-        cInterface.setData( target, tempBeer, gravity, tempBeerWire, tempChamber)
+        cInterface.setData( \
+            _cTargetT, \
+            _cWireBeerT, \
+            _cChamberT, \
+            _tBeerSG, \
+            _tBeerT, \
+            _cTiltControlled)
+
+        _fields = {}
+
+        if _cTargetT is not None:
+            _fields["targetTemp"] = str(round(float(_cTargetT),1))
+        if _cChamberT is not None:
+            _fields["chamberTemp"] = str(round(float(_cChamberT),1))
+        if _cBeerT is not None:
+            _fields["beerTemp"] = str(round(float(_cWireBeerT),1))
+        if _tBeerT is not None:
+            _fields["tiltTemp"] = str(round(float(_tBeerT),1))
+        if _tBeerSG is not None:
+            _fields["gravity"] = "{:5.3f}".format(round(float(_tBeerSG),3))
+        _fields["heating"] = _cHeating
+        _fields["cooling"] = _cCooling
+        _fields["tiltControlled"] = _cTiltControlled
+
+        _postdata = [
+            {
+                "measurement": "fermonitor",
+                "time": datetime.datetime.utcnow(),
+                "fields": _fields
+            }
+        ]
+      
+        client.write_points(_postdata)
 
         time.sleep(0.5)
 
 app = Flask(__name__)
 @app.route("/", methods=["GET","POST"])
 def index_html():
-    data = {}
+    _data = {}
 
-    if timeBeer is not None:
-        data['timeBeer'] = timeBeer.strftime("%d.%m.%Y %H:%M:%S")
-    if target is not None:
-        data['target'] = str(round(float(target),1))
-    if tempBeer is not None and cTilt is not None:
-        data['tempBeer'] = str(round(float(tempBeer),1))
-    if tempBeerWire is not None and tempBeer != tempBeerWire:
-        data['tempBeerWire'] = str(round(float(tempBeerWire),1))
-    if tempChamber is not None:
-        data['tempChamber'] = str(round(float(tempChamber),1))
-    if gravity is not None:
-        data['gravity'] = "{:5.3f}".format(round(float(gravity),3))
+    if cChamber is not None:
+        _data['dates'] = ', '.join([item.strftime("%d.%m.%Y %H:%M:%S") for item in cChamber.getDates()])
+        _data['temps'] = ', '.join([str(round(float(item),1)) for item in cChamber.getTemps()])
+        if cChamber.getTargetTemp() is not None:
+            _data['target'] = str(round(float(cChamber.getTargetTemp()),1))
+        if cChamber.getBeerTemp() is not None:
+            _data['tempBeer'] = str(round(float(cChamber.getBeerTemp()),1))
+        if cChamber.getWiredBeerTemp() is not None:
+            _data['tempBeerWire'] = str(round(float(cChamber.getWiredBeerTemp()),1))
+        if cChamber.getChamberTemp() is not None:
+            _data['tempChamber'] = str(round(float(cChamber.getChamberTemp()),1))
+        if cChamber.timeOfData() is not None:
+            _data['timeBeer'] = cChamber.timeOfData().strftime("%d.%m.%Y %H:%M:%S")
+        if cChamber.isTiltControlled() and sTiltColor is not None:
+            _data['tiltColor'] = sTiltColor
+        _data['heating'] = str(cChamber.isHeating())
+        _data['cooling'] = str(cChamber.isCooling())
 
-    return render_template('index.html', data=data)
+    return render_template('chamber.html', data=_data)
 
 @app.route("/tilt", methods=["GET","POST"])
 def tilt_html():
-    data = []
-    if cTilt is not None:
-        data = cTilt.getData()
-        data.reverse()
+    _data = []
+    if sTiltColor is not None:
+        _data = cTilt.getAllData().values()
 
-    return render_template('tilt.html', data=data)
-
-@app.route("/chamber", methods=["GET","POST"])
-def chamber_html():
-    data = {}
-
-    if cChamber is not None:
-        data['dates'] = ', '.join([item.strftime("%d.%m.%Y %H:%M:%S") for item in cChamber.getDates()])
-        data['temps'] = ', '.join([str(round(float(item),1)) for item in cChamber.getTemps()])
-        if cChamber.getTargetTemp() is not None:
-            data['target'] = str(round(float(cChamber.getTargetTemp()),1))
-        if cChamber.getBeerTemp() is not None:
-            data['tempBeer'] = str(round(float(cChamber.getBeerTemp()),1))
-        if cChamber.getWireBeerTemp() is not None:
-            data['tempBeerWire'] = str(round(float(cChamber.getWireBeerTemp()),1))
-        if cChamber.getChamberTemp() is not None:
-            data['tempChamber'] = str(round(float(cChamber.getChamberTemp()),1))
-        if cChamber.timeOfData() is not None:
-            data['timeBeer'] = cChamber.timeOfData().strftime("%d.%m.%Y %H:%M:%S")
-        data['tiltControlled'] = str(cChamber.isTiltControlled())
-        data['heating'] = str(cChamber.isHeating())
-        data['cooling'] = str(cChamber.isCooling())
-
-    return render_template('chamber.html', data=data)
+    return render_template('tilt.html', data=_data)
 
 @app.route("/brewfather", methods=["GET","POST"])
 def brewfather_html():
-    data = ""
-    timeData = ""
+    _nextdata = ""
+    _lastdata = ""
+    _timeData = ""
 
     if cBrewfather is not None:
-        data = cBrewfather.getLastJSON()
-        timeData = cBrewfather.getLastRequestTime().strftime("%d.%m.%Y %H:%M:%S")
+        _lastdata = cBrewfather.getLastJSON()
+        _nextdata = cBrewfather.getNextJSON()
+        _timeData = cBrewfather.getLastRequestTime().strftime("%d.%m.%Y %H:%M:%S")
 
-    return render_template('brewfather.html', data=data, timeData=timeData)
+    return render_template('brewfather.html', lastdata=_lastdata, nextdata=_nextdata, timeData=_timeData)
 
 
 if __name__ == "__main__": #dont run this as a module
 
     try:
+        LOGFILE = "fermonitor.log"
+        logging.basicConfig(format='%(asctime)s %(levelname)s {%(module)s} [%(funcName)s] %(message)s',datefmt='%Y-%m-%d,%H:%M:%S', level=logging.INFO)
+        logger = logging.getLogger('FERMONITOR')
+        logger.setLevel(logging.INFO)
+        handler = TimedRotatingFileHandler(LOGFILE, when="h", interval=24, backupCount=21)
+        formatter = logging.Formatter('%(asctime)s %(levelname)s {%(module)s} [%(funcName)s] %(message)s', datefmt='%Y-%m-%d,%H:%M:%S')
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+
         threading.Thread(target=app.run, args=('0.0.0.0','5000',False)).start()
         main()
 
     except KeyboardInterrupt:
+        if cTilt is not None:
+            cTilt.stop()
+            cTilt = None
+        if cChamber is not None:
+            cChamber.stop()
+            cChamber = None
+        if cBrewfather is not None:
+            cBrewfather.stop()
+            cBrewfather = None
+
         print("...Fermonitor Stopped")
  

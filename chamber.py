@@ -23,13 +23,14 @@ import os
 import threading
 import datetime
 import time
+
 import logging
+
 import tilt
-from setup_logger import logger
 import configparser
 import RPi.GPIO as GPIO
 
-logger = logging.getLogger('CHAMBER')
+logger = logging.getLogger('FERMONITOR.CHAMBER')
 logger.setLevel(logging.INFO)
 
 UPDATE_INVERVAL = 1 # update interval in seconds
@@ -62,6 +63,7 @@ class Chamber(threading.Thread):
 
         self.stopThread = True              # flag used for stopping the background thread
         self.tilt = _tilt
+        self.tiltcolor = None
         self.tempDates = [datetime.datetime.now()]
         self.targetTemps = [DEFAULT_TEMP]
         self.targetTemp = DEFAULT_TEMP
@@ -71,6 +73,7 @@ class Chamber(threading.Thread):
         self.beerWireTemp = DEFAULT_TEMP
         self.chamberTemp = DEFAULT_TEMP
         self.timeData = datetime.datetime.now()
+        self.bTiltControlled = False
 
         self.onDelay = DEFAULT_ON_DELAY
         self.beerTAdjust = 0.0
@@ -119,8 +122,8 @@ class Chamber(threading.Thread):
         self.bufferChamberScale
 
         # read latest temperatures
-        self.getChamberTemp()
-        self.getBeerTemp()
+        self._readChamberTemp()
+        self._readBeerTemp()
 
         _curTime = datetime.datetime.now()
             
@@ -192,82 +195,114 @@ class Chamber(threading.Thread):
         else:
             return self.targetTemp
 
-    # reads beer temperature from tilt, if configured and less than 5min old, or wire and returns value
     def getBeerTemp(self):
+        if self.beerTemp != DEFAULT_TEMP:
+            return self.beerTemp
+
+        return None
+
+    def getWiredBeerTemp(self):
+        if self.beerWireTemp != DEFAULT_TEMP:
+            return self.beerWireTemp
+        return None
+
+    def getChamberTemp(self):
+        if self.chamberTemp != DEFAULT_TEMP:
+            return self.chamberTemp
+        return None
+
+    # reads beer temperature from tilt, if configured and less than 5min old, or wire and returns value
+    def _readBeerTemp(self):
         logger.debug("getBeerTemp")
 
+        _tiltdata = {}
+
         # if Tilt is configured and available replace related values
-        if (self.tilt is not None):
-            tiltdatatime = self.tilt.timeOfData()
-            if tiltdatatime is not None and tiltdatatime > datetime.datetime.now() - datetime.timedelta(minutes=5):
-                self.beerTemp = self.tilt.getTemp()
-                if self.timeData < tiltdatatime:
-                    self.timeData = tiltdatatime
+        if (self.tilt is not None and self.tiltcolor is not None):
+            _tiltdata = self.tilt.getData(self.tiltcolor)
+
+            if _tiltdata is not None:
+                _tiltdatatime = _tiltdata[tilt.TIME]
+            
+                if _tiltdatatime is not None and _tiltdatatime > datetime.datetime.now() - datetime.timedelta(minutes=5):
+                    _beerTemp = _tiltdata[tilt.TEMP]
+                    if _beerTemp is not None:
+                        self.beerTemp = _beerTemp
+                        self.bTiltControlled = True
+
+                        if self.timeData < _tiltdatatime:
+                            self.timeData = _tiltdatatime
+                    else:
+                        logger.warning("Temp for "+self.tiltcolor+" tilt is None; using wired temperatures")
+                        self.beerTemp = self._readWireBeerTemp()
+                        self.bTiltControlled = False
+
+                else:
+                    logger.warning("Data for "+self.tiltcolor+" tilt is outdated; using wired temperatures")
+                    self.beerTemp = self._readWireBeerTemp()
+                    self.bTiltControlled = False
             else:
-                logger.error("Data from tilt unavailable; using wired temperatures")
-                self.beerTemp = self.getWireBeerTemp()
+                logger.warning("Data for "+self.tiltcolor+" tilt unavailable; using wired temperatures")
+                self.beerTemp = self._readWireBeerTemp()
+                self.bTiltControlled = False
+        # Tilt is not configured or color is not specified
         else:
-           self.beerTemp = self.getWireBeerTemp()
+           self.beerTemp = self._readWireBeerTemp()
+           self.bTiltControlled = False
 
         if self.beerTemp == DEFAULT_TEMP:
+            self.bTiltControlled = False
             return None
         else:
             return self.beerTemp
     
-    def getWireBeerTemp(self):
+    def _readWireBeerTemp(self):
         logger.debug("getWireBeerTemp")
 
         id = '28-02148151b0ff'
 
-        _temp = self._gettemp(id) + self.beerTAdjust
+        _temp = self._readTemp(id) + self.beerTAdjust
         
         # if the stored temperature is default value or less than change threshold with updated reading, store new value
         if self.beerWireTemp == DEFAULT_TEMP or abs(_temp - self.beerWireTemp) < TEMP_CHANGE_THRESHOLD:
             self.beerWireTemp = _temp
         # bigger jump in temperature threshold, take average of 10 readings
         else:
-            self.beerWireTemp = self._avgtemp(id,10) + self.beerTAdjust
+            self.beerWireTemp = self._avgTemp(id,10) + self.beerTAdjust
 
         if self.beerWireTemp == DEFAULT_TEMP:
             return None
         else:
             return self.beerWireTemp
 
-    def getChamberTemp(self):
+    def _readChamberTemp(self):
         logger.debug("getChamberTemp")
         
         id = '28-0417004ebfff'
 
-        _temp = self._gettemp(id) + self.chamberTAdjust
+        _temp = self._readTemp(id) + self.chamberTAdjust
         
         # if the stored temperature is default value or less than change threshold with updated reading, store new value
         if self.chamberTemp == DEFAULT_TEMP or abs(_temp - self.chamberTemp) < TEMP_CHANGE_THRESHOLD:
             self.chamberTemp = _temp
         # bigger jump in temperature threshold, take average of 10 readings
         else:
-            self.chamberTemp = self._avgtemp(id,10) + self.chamberTAdjust
+            self.chamberTemp = self._avgTemp(id,10) + self.chamberTAdjust
 
         if self.chamberTemp == DEFAULT_TEMP:
             return None
         else:
             return self.chamberTemp
 
-#TODO
-#    # returns controller's internal temperature
-#    def getInternalTemp(self):
-#        if self.internalTemp == DEFAULT_TEMP:
-#            return None
-#        else:
-#            return round(float(self.internalTemp),1)
-# END TODO
-
     def isTiltControlled(self):
-        if self.tilt == None:
-            return False
-        return True
+        return self.bTiltControlled
 
-    def setTilt(self, _tilt):
-        self.tilt = _tilt
+
+    def setTiltColor(self, _color):
+        if tilt.validColor(_color):
+            self.tiltcolor = _color
+        else:
+            self.tiltcolor = None
 
     # returns time when data was updated
     def timeOfData(self):
@@ -314,14 +349,14 @@ class Chamber(threading.Thread):
             GPIO.output(_relay, GPIO.HIGH) # Turn relay OFF
             GPIO.output(_led, GPIO.LOW) # Turn led OFF
 
-    def _avgtemp(self, id, _num):
+    def _avgTemp(self, id, _num):
         logger.debug("_avgtemp")
 
         interval = 0
         _temp = 0.0
 
         for i in range (0, _num):
-            t = self._gettemp(id)
+            t = self._readTemp(id)
             if t != DEFAULT_TEMP:
                 _temp += t
                 interval += 1
@@ -330,7 +365,7 @@ class Chamber(threading.Thread):
         return _temp/interval
 
 
-    def _gettemp(self, id):
+    def _readTemp(self, id):
         logger.debug("_gettemp")
         try:
             mytemp = ''

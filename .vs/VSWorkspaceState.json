@@ -1,8 +1,10 @@
 {
   "ExpandedNodes": [
     "",
+    "\\old",
+    "\\old\\templates",
     "\\templates"
   ],
-  "SelectedNode": "\\1-wire.py",
+  "SelectedNode": "\\fermonitor.py",
   "PreviewInSolutionExplorer": false
 }
