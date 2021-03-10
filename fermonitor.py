@@ -192,6 +192,7 @@ def main():
             _tiltdata = {}
             _tiltdata = cTilt.getData(sTiltColor)
             if _tiltdata is not None:
+                _tBeerT = _tiltdata.get(tilt.TEMP)
                 _tBeerSG = _tiltdata.get(tilt.SG)
 
         cBrewfather.setData(_cBeerT, _cChamberT, _tBeerSG)        
@@ -204,13 +205,15 @@ def main():
             _tBeerT, \
             _cTiltControlled)
 
+
+        # Write data to InfluxDB
         _fields = {}
 
         if _cTargetT is not None:
             _fields["targetTemp"] = str(round(float(_cTargetT),1))
         if _cChamberT is not None:
             _fields["chamberTemp"] = str(round(float(_cChamberT),1))
-        if _cBeerT is not None:
+        if _cWireBeerT is not None:
             _fields["beerTemp"] = str(round(float(_cWireBeerT),1))
         if _tBeerT is not None:
             _fields["tiltTemp"] = str(round(float(_tBeerT),1))
@@ -235,48 +238,37 @@ def main():
 app = Flask(__name__)
 @app.route("/", methods=["GET","POST"])
 def index_html():
-    _data = {}
+    _chamberdata = {}
 
     if cChamber is not None:
-        _data['dates'] = ', '.join([item.strftime("%d.%m.%Y %H:%M:%S") for item in cChamber.getDates()])
-        _data['temps'] = ', '.join([str(round(float(item),1)) for item in cChamber.getTemps()])
+        _chamberdata['dates'] = ', '.join([item.strftime("%d.%m.%Y %H:%M:%S") for item in cChamber.getDates()])
+        _chamberdata['temps'] = ', '.join([str(round(float(item),1)) for item in cChamber.getTemps()])
         if cChamber.getTargetTemp() is not None:
-            _data['target'] = str(round(float(cChamber.getTargetTemp()),1))
+            _chamberdata['target'] = str(round(float(cChamber.getTargetTemp()),1))
         if cChamber.getBeerTemp() is not None:
-            _data['tempBeer'] = str(round(float(cChamber.getBeerTemp()),1))
+            _chamberdata['tempBeer'] = str(round(float(cChamber.getBeerTemp()),1))
         if cChamber.getWiredBeerTemp() is not None:
-            _data['tempBeerWire'] = str(round(float(cChamber.getWiredBeerTemp()),1))
+            _chamberdata['tempBeerWire'] = str(round(float(cChamber.getWiredBeerTemp()),1))
         if cChamber.getChamberTemp() is not None:
-            _data['tempChamber'] = str(round(float(cChamber.getChamberTemp()),1))
+            _chamberdata['tempChamber'] = str(round(float(cChamber.getChamberTemp()),1))
         if cChamber.timeOfData() is not None:
-            _data['timeBeer'] = cChamber.timeOfData().strftime("%d.%m.%Y %H:%M:%S")
+            _chamberdata['timeBeer'] = cChamber.timeOfData().strftime("%d.%m.%Y %H:%M:%S")
         if cChamber.isTiltControlled() and sTiltColor is not None:
-            _data['tiltColor'] = sTiltColor
-        _data['heating'] = str(cChamber.isHeating())
-        _data['cooling'] = str(cChamber.isCooling())
+            _chamberdata['tiltColor'] = sTiltColor
+        _chamberdata['heating'] = str(cChamber.isHeating())
+        _chamberdata['cooling'] = str(cChamber.isCooling())
 
-    return render_template('chamber.html', data=_data)
-
-@app.route("/tilt", methods=["GET","POST"])
-def tilt_html():
-    _data = []
+    _tiltdata = []
     if sTiltColor is not None:
-        _data = cTilt.getAllData().values()
+        _tiltdata = cTilt.getAllData().values()
 
-    return render_template('tilt.html', data=_data)
-
-@app.route("/brewfather", methods=["GET","POST"])
-def brewfather_html():
-    _nextdata = ""
-    _lastdata = ""
-    _timeData = ""
-
+    _brewfatherdata = {}
     if cBrewfather is not None:
-        _lastdata = cBrewfather.getLastJSON()
-        _nextdata = cBrewfather.getNextJSON()
-        _timeData = cBrewfather.getLastRequestTime().strftime("%d.%m.%Y %H:%M:%S")
+        _brewfatherdata['lastdata'] = cBrewfather.getLastJSON()
+        _brewfatherdata['nextdata'] = cBrewfather.getNextJSON()
+        _brewfatherdata['timeData'] = cBrewfather.getLastRequestTime().strftime("%d.%m.%Y %H:%M:%S")
 
-    return render_template('brewfather.html', lastdata=_lastdata, nextdata=_nextdata, timeData=_timeData)
+    return render_template('fermonitor.html', chamberdata=_chamberdata, tiltdata=_tiltdata, brewfatherdata = _brewfatherdata)
 
 
 if __name__ == "__main__": #dont run this as a module

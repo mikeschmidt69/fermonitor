@@ -215,6 +215,8 @@ class Chamber(threading.Thread):
     def _readBeerTemp(self):
         logger.debug("getBeerTemp")
 
+        self._readWireBeerTemp()
+
         _tiltdata = {}
 
         # if Tilt is configured and available replace related values
@@ -234,23 +236,25 @@ class Chamber(threading.Thread):
                             self.timeData = _tiltdatatime
                     else:
                         logger.warning("Temp for "+self.tiltcolor+" tilt is None; using wired temperatures")
-                        self.beerTemp = self._readWireBeerTemp()
+                        self.beerTemp = self.getWiredBeerTemp()
                         self.bTiltControlled = False
 
                 else:
                     logger.warning("Data for "+self.tiltcolor+" tilt is outdated; using wired temperatures")
-                    self.beerTemp = self._readWireBeerTemp()
+                    self.beerTemp = self.getWiredBeerTemp()
                     self.bTiltControlled = False
             else:
                 logger.warning("Data for "+self.tiltcolor+" tilt unavailable; using wired temperatures")
-                self.beerTemp = self._readWireBeerTemp()
+                self.beerTemp = self.getWiredBeerTemp()
                 self.bTiltControlled = False
         # Tilt is not configured or color is not specified
         else:
-           self.beerTemp = self._readWireBeerTemp()
+           logger.debug("Tilt not configured, using wired beer temp")
+           self.beerTemp = self.getWiredBeerTemp()
            self.bTiltControlled = False
 
         if self.beerTemp == DEFAULT_TEMP:
+            logger.debug("Beer temp equals default, discard")
             self.bTiltControlled = False
             return None
         else:

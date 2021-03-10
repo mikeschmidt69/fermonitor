@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Fermonitor</title>
+    <meta http-equiv="refresh" content="60">
+</head>
+<body>
+    <h1>Fermonitor</h1>
+    <hr />
+    <table style="width:600px">
+        <tr><td span=2><b>CHAMBER</b></td></tr>
+        {% if chamberdata.timeBeer %}
+        <tr><td>Time of data: </td><td>{{ chamberdata.timeBeer }}</td></tr>
+        {% endif %}
+        {% if chamberdata.target %}
+        <tr><td>Target temperature: </td><td>{{ chamberdata.target }}C</td></tr>
+        {% endif %}
+        {% if chamberdata.tempBeer %}
+        <tr><td>Beer temperature: </td><td>{{ chamberdata.tempBeer }}C</td></tr>
+        {% endif %}
+        {% if chamberdata.tempBeerWire %}
+        <tr><td>Beer temperature (wire): </td><td>{{ chamberdata.tempBeerWire }}C</td></tr>
+        {% endif %}
+        {% if chamberdata.tempChamber %}
+        <tr><td>Chamber temperature: </td><td>{{ chamberdata.tempChamber }}C</td></tr>
+        {% endif %}
+        {% if chamberdata.dates %}
+        <tr><td>Dates: </td><td>{{ chamberdata.dates }}</td></tr>
+        {% endif %}
+        {% if chamberdata.temps %}
+        <tr><td>Temperatures: </td><td>{{ chamberdata.temps }}</td></tr>
+        {% endif %}
+        {% if chamberdata.tiltColor %}
+        <tr><td>Controlling Tilt Color: </td><td>{{ chamberdata.tiltColor }}</td></tr>
+        {% endif %}
+        {% if chamberdata.heating %}
+        <tr><td>Heating ON: </td><td>{{ chamberdata.heating }}</td></tr>
+        {% endif %}
+        {% if chamberdata.cooling %}
+        <tr><td>Cooling ON: </td><td>{{ chamberdata.cooling }}</td></tr>
+        {% endif %}
+    </table>
+<hr>
+    <table style="width:600px">
+        <tr><td span=4><b>TILT</b></td></tr>
+        <tr><td><b>COLOR</b></td><td><b>TIME</b></td><td><b>SPECIFIC GRAVITY</b></td><td><b>TEMPERATURE</b></td></tr>
+        {% for row in tiltdata%}
+        <tr>
+            <td style="text-align:left">
+                {% if row.TIME %}
+                {{ row.COLOR }}
+                {% endif %}
+            </td>
+            <td style="text-align:left">
+                {% if row.TIME %}
+                {{ row.TIME }}
+                {% endif %}
+            </td>
+            <td style="text-align:right">
+                {% if row.TIME %}
+                {{ row.SG }}
+                {% endif %}
+            </td>
+            <td style="text-align:right">
+                {% if row.TIME %}
+                {{ row.TEMP }}
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+
+<hr>
+    <table style="width:600px">
+        <tr><td span=2><b>BREWFATHER</b></td></tr>
+        {% if brewfatherdata.timeData %}
+        <tr><td>Time of last update: </td><td>{{ brewfatherdata.timeData }}</td></tr>
+        {% endif %}
+        {% if brewfatherdata.lastdata %}
+        <tr><td>Last JSON: </td><td>{{ brewfatherdata.lastdata }}</td></tr>
+        {% endif %}
+        {% if brewfatherdata.nextdata %}
+        <tr><td>Next JSON: </td><td>{{ brewfatherdata.nextdata }}</td></tr>
+        {% endif %}
+    </table>
+
+<hr>
+<script language="JavaScript">
+document.write('<iframe src="'+window.location.protocol+'//'+window.location.hostname+':3000/d-solo/lPgTqDRgz/fermonitor?orgId=1&refresh=10s&panelId=4" width="800" height="400" frameborder="0"></iframe>');
+</script>
+<br>
+<script language="JavaScript">
+document.write('<iframe src="'+window.location.protocol+'//'+window.location.hostname+':3000/d-solo/lPgTqDRgz/fermonitor?orgId=1&refresh=10s&panelId=2" width="800" height="400" frameborder="0"></iframe>');
+</script>
+<br>
+<script language="JavaScript">
+document.write('<iframe src="'+window.location.protocol+'//'+window.location.hostname+':3000/d-solo/lPgTqDRgz/fermonitor?orgId=1&refresh=10s&panelId=6" width="800" height="400" frameborder="0"></iframe>');
+</script>
+<br>
+</body>
+</html>
+

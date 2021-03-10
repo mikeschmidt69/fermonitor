@@ -29,9 +29,7 @@ import time
 import os
 import bluetooth._bluetooth as bluez
 import threading
-
 import logging
-
 import configparser
 from distutils.util import strtobool
 
@@ -53,7 +51,9 @@ YELLOW = "YELLOW"
 PINK = "PINK"
 
 DEFAULT_BT_DEVICE_ID = 0
-MINIMUM_INTERVAL = 10
+INTERVAL_SEC = 10
+SCAN_SEC = 15
+
 CONFIGFILE = "tilt.ini"
 CONFIGSECTION = "TILT"
 
@@ -85,14 +85,9 @@ class Tilt (threading.Thread):
     # Constructor for class
     def __init__(self):
         threading.Thread.__init__(self)
-    
+        self.stopThread = True    
         self.bluetoothDeviceId = DEFAULT_BT_DEVICE_ID
-        self.interval = MINIMUM_INTERVAL
-
-        self.lastUpdateTime = datetime.now()  - timedelta(seconds=self.interval) # last time the tilt was read
-     
         self.data = {}
-        self.stopThread = True
         self._readConf()
 
 
@@ -103,8 +98,8 @@ class Tilt (threading.Thread):
         self.stopThread = False
         while self.stopThread != True:
             self._readConf()
-            self._update()    # calls method that updates data from Tilt if update time interval has lapsed
-            time.sleep(MINIMUM_INTERVAL)
+            self._readdata()
+            time.sleep(INTERVAL_SEC)
         logger.info("Tilt Monitoring Stopped.")
 
 
@@ -126,22 +121,10 @@ class Tilt (threading.Thread):
             return None
 
  
-    # Internal method for checking if the update time interval has lapsed and new data should be read from Tilt
-    def _update(self):
-        updateTime = self.lastUpdateTime + timedelta(seconds=self.interval)
-        if datetime.now() > updateTime:
-            logger.debug("Update data")
-            self._readdata()
-            self.lastUpdateTime = datetime.now()
-        else:
-            logger.debug("Update interval not reached:"+datetime.now().strftime(DATETIME_FORMAT) +" / "+ updateTime.strftime(DATETIME_FORMAT)) 
-
-
     # Method for scan BLE advertisements until one matching tilt uuid is found and data (temperature, specific gravity) is read and stored
     def _readdata(self):
 
-        curTime = datetime.now()
-        timeout = curTime + timedelta(minutes=1) # scan for 1 minute looking for data from tilt
+        timeout = datetime.now() + timedelta(seconds=SCAN_SEC) 
 
         logger.debug("Connecting to Bluetooth...")
         try:
@@ -156,8 +139,10 @@ class Tilt (threading.Thread):
 
         _data = {}
     
-        while (curTime < timeout):
+        while (datetime.now() < timeout):
             returnedList = blescan.parse_events(sock, 10)
+
+            curTime = datetime.now()
 
             for beacon in returnedList:  # returnedList is a list datatype of string datatypes seperated by commas (,)
  
@@ -179,12 +164,13 @@ class Tilt (threading.Thread):
                         _data[foundColor] = {COLOR: foundColor, TEMP: round(float(foundTemp),1), SG: round(float(foundSG),3), TIME:curTime}
                         logger.debug(foundColor+" - "+curTime.strftime(DATETIME_FORMAT)+" - T:"+str(round(float(foundTemp),1))+" - SG:"+"{:5.3f}".format(round(float(foundSG),3)))
 
-            curTime = datetime.now()
+
 
         # Did not collect data before timeout; set data as invalid
         if len(_data) == 0:
             logger.debug("Timed out collecting data from Tilt")
         
+        self.data.clear()
         self.data = _data
 
         blescan.hci_disable_le_scan(sock)
@@ -193,7 +179,6 @@ class Tilt (threading.Thread):
 
     def _readConf(self):
     
-        bDefaultInterval = True
         bDefaultBtDeviceId = True
         
         if os.path.isfile(CONFIGFILE) == False:
@@ -208,21 +193,14 @@ class Tilt (threading.Thread):
                     config = ini[CONFIGSECTION]
 
                     try:
-                        if config["UpdateIntervalSeconds"] != "" and int(config["UpdateIntervalSeconds"]) >= MINIMUM_INTERVAL:
-                            self.interval = int(config.get("UpdateIntervalSeconds"))
-                            bDefaultInterval = False
-                        else:
-                            self.interval = MINIMUM_INTERVAL
-                    except KeyError:
-                        pass
-
-                    try:
                         if config["BluetoothDeviceId"] != "" and int(config["BluetoothDeviceId"]) >= 0:
                             self.bluetoothDeviceId = int(config.get("BluetoothDeviceId"))
                             bDefaultBtDeviceId = False
                         else:
                             self.bluetoothDeviceId = 0
+                            logger.warning("Problem reading BluetoothDeviceId from configuration file; using default")
                     except KeyError:
+                        logger.warning("Problem reading BluetoothDeviceId from configuration file; using default")
                         pass
 
                     try:
@@ -237,20 +215,11 @@ class Tilt (threading.Thread):
                         else:
                             logger.setLevel(logging.INFO)
                     except KeyError:
+                        logger.warning("Problem reading MessageLevel from configuration file; using default")
                         logger.setLevel(logging.INFO)
                 else:
                     logger.error("["+CONFIGSECTION+"] section not found in ini file: " + CONFIGFILE)
             except:
-                pass
+                logger.error("Problem reading configuration file: "+CONFIGFILE)
     
-        if bDefaultInterval or bDefaultBtDeviceId:
-            logger.warning("Problem read from configuration file: \""+CONFIGFILE+ \
-                "\". Using some default values[**] for Tilt configuration. It could take a minute for updated values in config file to be used.")
-            sConf = "UpdateIntervalSeconds = "+str(self.interval)
-            if bDefaultInterval:
-                sConf = sConf + "**"
-            sConf = sConf + "\nBluetoothDeviceId = "+str(self.bluetoothDeviceId)
-            if bDefaultBtDeviceId:
-                sConf = sConf + "**"
-            print(sConf)
 
