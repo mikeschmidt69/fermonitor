@@ -3,7 +3,7 @@ Homebrew Fermentation Controller
 
 Setup includes Raspberry Pi with 2 1-wire temperature sensor probes (beer, chamber), 2 relays switches for powering cooling device (fridge) and heating device (heating pad), 2 LED, 2x16 LCD and motion sensor for turning on/off display. Look at architecture.pdf for overview.
 
-fermonitor.py is the main app and starts the various support threads (chamber, tilt, brewfather and interface). Implementation is responsible for collecting data from various chamber and passing to brewfather class for updating remote service and to interface for displaying to LCD. Implementation also provides web interface using Flask (xxx.xxx.xxx.xxx:5000)
+fermonitor.py is the main app and starts the various support threads (chamber, tilt, brewfather and interface). Implementation is responsible for collecting data from chamber and tilt and passing to brewfather class for updating remote service and to interface for displaying to LCD. Data is also stored to locally running InfluxDB. Implementation also provides web interface using Flask (xxx.xxx.xxx.xxx:5000). In addition to current state of system the webpage includes 3 embedded Grafana graphs based on the data stored in InfluxDB.
 
 tilt.py has code for reading data temperature and specific gravity from Tilt Hydrometer (https://tilthydrometer.com/). The tilt class runs in own thread and reads own section of configuration file, fermonitor.ini. Code is based on tiltV1.py code found at following URL and utilizes blescan.py found on the same page
 https://www.instructables.com/id/Reading-a-Tilt-Hydrometer-With-a-Raspberry-Pi/. I followed instructions on this page: https://kvurd.com/blog/tilt-hydrometer-ibeacon-data-format/ Ran "sudo systemctl daemon-reload" followed by "sudo systemctl restart bluetooth" to get "sudo hcitool lescan" to run. I found Tilt from list by first running the command and then tilting the Tilt to see what device is added to the list. It did not have label "Tilt" for easy identification.
@@ -17,6 +17,7 @@ I run the app by "sudo python3 fermonitor.py &" or including similar line to /et
 I can monitor the fermentation on BrewFather but I also use port-forwarding on home router to provide remote access to the Flask web interface that provides more insight on current state of controller. Port-forwarding also allows SSH access to the RPi for editing .ini files or in worse case rebooting RPi.
 
 Most of the files are configured with their own .ini
+
 fermonitor.py -> fermonitor.ini
 - message level
 - if chamber is controlled by wired temperature or from Tilt
