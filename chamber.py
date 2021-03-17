@@ -135,15 +135,22 @@ class Chamber(threading.Thread):
         
         # No configured dates have passed, leave chamer powered off
         if datesPassed == 0:
+            self.targetTemp = DEFAULT_TEMP
+
             # Turn off heating and cooling
             logger.debug("Leaving chamber heating/cooling off until first date reached: " + self.tempDates[datesPassed].strftime("%d.%m.%Y %H:%M:%S"))
+            
             self._controlheatingcooling(PIN_HEAT_RELAY, PIN_HEAT_LED, False)
             self._controlheatingcooling(PIN_COOL_RELAY, PIN_COOL_LED, False)
             return
 
         # check if last date has been reached. If so, heating/cooling should stop
         elif datesPassed == len(self.tempDates):
+            self.targetTemp = DEFAULT_TEMP
+
+            # Turn off heating and cooling
             logger.debug("Last date reached turning heating/cooling off: " + self.tempDates[datesPassed-1].strftime("%d.%m.%Y %H:%M:%S"))
+            
             self._controlheatingcooling(PIN_HEAT_RELAY, PIN_HEAT_LED, False)
             self._controlheatingcooling(PIN_COOL_RELAY, PIN_COOL_LED, False)
             return
@@ -190,15 +197,13 @@ class Chamber(threading.Thread):
         return self.targetTemps.copy()
 
     def getTargetTemp(self):
-        if self.targetTemp == DEFAULT_TEMP:
-            return None
-        else:
+        if self.targetTemp != DEFAULT_TEMP:
             return self.targetTemp
+        return None
 
     def getBeerTemp(self):
         if self.beerTemp != DEFAULT_TEMP:
             return self.beerTemp
-
         return None
 
     def getWiredBeerTemp(self):
